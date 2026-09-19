@@ -1,0 +1,21 @@
+# Local PerkWatch real-data staging. Keep this outside the repository by default.
+/.local/perk-watch/
+/data/local/
+/data/real/
+
+# Never commit local source artifacts or derived stores.
+**/raw/
+**/derived/
+**/manifests/
+*.pdf
+*.sqlite
+*.sqlite3
+*.db
+*.index
+.env
+.env.*
+!.env.example
+*credentials*
+*secrets*
+*password*
+*token*
