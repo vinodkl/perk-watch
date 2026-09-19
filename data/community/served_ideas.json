@@ -1,0 +1,46 @@
+{
+  "dataset_version": "slice0-2026-09-19.v1",
+  "corpus_version": "community-synthetic-2026-09-19.v1",
+  "synthetic": true,
+  "ideas": [
+    {
+      "idea_id": "idea-s01",
+      "benefit_id": "amex_platinum_resy",
+      "source_id": "synthetic-post-s01",
+      "source_date": "2026-02-10",
+      "source_url": "https://example.invalid/reddit/synthetic-post-s01",
+      "excerpt": "Synthetic excerpt: check eligible dining reservations before the quarter closes.",
+      "idea": "Review eligible dining charges before quarter end.",
+      "terms_version": "synthetic-2026-09-19.v1",
+      "review_label": "no_known_conflict",
+      "served": true,
+      "corpus_version": "community-synthetic-2026-09-19.v1"
+    },
+    {
+      "idea_id": "idea-s02",
+      "benefit_id": "amex_platinum_airline_fee",
+      "source_id": "synthetic-post-s02",
+      "source_date": "2026-01-21",
+      "source_url": "https://example.invalid/reddit/synthetic-post-s02",
+      "excerpt": "Synthetic excerpt: confirm the selected airline before an incidental fee posts.",
+      "idea": "Confirm the selected airline before paying an incidental fee.",
+      "terms_version": "synthetic-2026-09-19.v1",
+      "review_label": "no_known_conflict",
+      "served": true,
+      "corpus_version": "community-synthetic-2026-09-19.v1"
+    },
+    {
+      "idea_id": "idea-s03",
+      "benefit_id": "chase_sapphire_preferred_hotel",
+      "source_id": "synthetic-post-s03",
+      "source_date": "2026-03-04",
+      "source_url": "https://example.invalid/reddit/synthetic-post-s03",
+      "excerpt": "Synthetic excerpt: compare the Chase Travel price before booking a hotel.",
+      "idea": "Compare the required portal price before booking.",
+      "terms_version": "synthetic-2026-09-19.v1",
+      "review_label": "no_known_conflict",
+      "served": true,
+      "corpus_version": "community-synthetic-2026-09-19.v1"
+    }
+  ]
+}
