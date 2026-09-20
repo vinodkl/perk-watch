@@ -86,6 +86,22 @@ def benefit_period(period_type: str, as_of: date, *, cardmember_since: date | No
     raise ValueError(f"unsupported period type: {period_type}")
 
 
+def evaluate_all_benefits(
+    benefits: Iterable[Benefit], ledger: object, as_of: date, *,
+    cardmember_since: Mapping[str, date] | None = None,
+    enrolled: Mapping[str, bool | None] | None = None,
+    portal_confirmed: Mapping[str, bool | None] | None = None,
+    limit_minor: Mapping[str, int | None] | None = None,
+    observed_on: Mapping[str, date] | None = None,
+) -> list[StatusResult]:
+    """Evaluate persisted facts only; this path deliberately accepts no resolver."""
+    transactions = ledger.load_resolved_transactions() if hasattr(ledger, "load_resolved_transactions") else ledger
+    return resolve_benefits(
+        benefits, transactions, as_of, cardmember_since=cardmember_since, enrolled=enrolled,
+        portal_confirmed=portal_confirmed, limit_minor=limit_minor, observed_on=observed_on,
+    )
+
+
 def resolve_benefits(
     benefits: Iterable[Benefit], transactions: Iterable[Transaction | ResolvedTransaction], as_of: date, *,
     cardmember_since: Mapping[str, date] | None = None,
@@ -154,8 +170,8 @@ def resolve_status(
             continue
         if merchant in MERCHANTS.get(benefit.benefit_id, set()):
             eligible.append(transaction)
-        elif merchant is None and transaction.descriptor not in EXCLUDED_DESCRIPTORS and _possible_match(benefit, transaction):
-            uncertain.append(("unresolved_eligible_transaction", transaction.transaction_id))
+        elif merchant is None and transaction.descriptor not in EXCLUDED_DESCRIPTORS:
+            uncertain.append(("unresolved_merchant", transaction.transaction_id))
     evidence.extend(f"transaction:{row.transaction_id}" for row in eligible)
     evidence.extend(f"uncertain_transaction:{value}" for _, value in uncertain)
     if uncertain:
