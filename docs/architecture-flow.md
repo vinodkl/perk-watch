@@ -11,6 +11,10 @@ PerkWatch separates data preparation from the user-facing runtime:
 No user query fetches issuer pages or Reddit, parses PDFs, imports statements,
 or changes the rule registry or indexes.
 
+Linear blocking relations are the source of truth for execution order. This
+document mirrors that graph so agents can understand the architectural reason
+for each dependency.
+
 Ticket status symbols reflect the current Linear plan:
 
 - ✅ Done
@@ -27,13 +31,13 @@ versioned, local artifacts consumed read-only by the online flow.
 flowchart TB
     OP([User / operator])
 
-    OP -->|"Manual account login and check"| V24["👤 VKU-24<br/>Verify account benefits"]
+    OP -->|"Manual account login and check"| V24["✅ VKU-24<br/>Verify account benefits"]
     V24 --> V25["⏳ VKU-25<br/>Expand benefit coverage"]
     V25 --> V26["⏳ VKU-26<br/>Refresh guides and report invalidations"]
 
     OP -->|"Benefit guides, CSV / OFX"| S22["✅ VKU-22<br/>Local-only data staging"]
     S22 --> T15["✅ VKU-15<br/>Normalize transactions<br/>Resolve merchants"]
-    T15 --> P29["⏳ VKU-29<br/>Persist ledger and merchant decisions"]
+    T15 --> P29["✅ VKU-29<br/>Persist ledger and merchant decisions"]
     P29 --> LEDGER[("SQLite transaction ledger")]
 
     V26 --> CORPUS[("Versioned official-clause corpus")]
@@ -52,8 +56,8 @@ flowchart TB
     classDef done fill:#dcfce7,stroke:#15803d,color:#14532d;
     classDef pending fill:#fef3c7,stroke:#b45309,color:#78350f;
     classDef optional fill:#f3e8ff,stroke:#7e22ce,color:#581c87;
-    class S22,T15,C23,C12 done;
-    class V24,V25,V26,P29,R17,O13 pending;
+    class S22,T15,C23,C12,V24,P29 done;
+    class V25,V26,R17,O13 pending;
     class O28 optional;
 ```
 
@@ -171,10 +175,10 @@ flowchart LR
 | **VKU-15 ✅** | Offline | Transaction normalization and merchant resolution | Converts exports into structured evidence before queries |
 | **VKU-23 ✅** | Offline + evaluation | Real offline community collection | Produces source-linked ideas and the safety corpus |
 | **VKU-16 ✅** | Online | Deterministic authority | Returns exact statuses, values, periods, and deadlines |
-| **VKU-24 👤** | Offline/manual | Account verification | Ensures prepared benefits match the actual account |
+| **VKU-24 ✅** | Offline/manual | Account verification | Ensures prepared benefits match the actual account |
 | **VKU-25 ⏳** | Offline | Benefit-scope expansion | Covers every benefit across both cards |
 | **VKU-26 ⏳** | Offline | Guide refresh and invalidation | Prevents stale terms from reaching runtime |
-| **VKU-29 ⏳** | Offline storage | SQLite ledger and merchant persistence | Makes runtime restart-safe and model-independent |
+| **VKU-29 ✅** | Offline storage | SQLite ledger and merchant persistence | Makes runtime restart-safe and model-independent |
 | **VKU-17 ⏳** | Offline storage | Extractor/Verifier and SQLite registry | Produces the only rules the online evaluator may use |
 | **VKU-13 ⏳** | Offline build + online read | Official-clause index and retrieval | Supplies version-correct citations during a query |
 | **VKU-14 ⏳** | Online | ReAct loop | Handles natural-language questions and explanations |
@@ -207,17 +211,23 @@ facts, and propose plans. The deterministic feasibility check rejects plan
 items that exceed remaining value, miss a deadline, or violate known
 constraints.
 
-## Execution dependency map
+## Current execution order
+
+**Done foundation:** VKU-12, VKU-15, VKU-16, VKU-22, VKU-23, VKU-24, and
+VKU-29.
+
+**Next:** VKU-25 is the only unblocked remaining ticket.
 
 ```text
-VKU-24 → VKU-25 → VKU-26 → VKU-13 ┐
-                            → VKU-17 ├→ VKU-14 → VKU-19 → VKU-18 → VKU-21
-VKU-15 + VKU-16 + VKU-22 → VKU-29 ┘             │
-                                  VKU-17 + VKU-29 → VKU-27 → VKU-21
+VKU-25 → VKU-26 → ┬→ VKU-13 ─┐
+                   └→ VKU-17 ─┼→ VKU-14 → VKU-19 ┬→ VKU-18 ─┐
+                               └───────────────────┴→ VKU-27 ─┼→ VKU-21
 
-Optional:
+Optional after the working flow:
 VKU-13 + VKU-23 → VKU-28 → VKU-20
 ```
 
-The immediate unblocked work is VKU-24 and VKU-29. VKU-24 requires manual
-login, MFA, account selection, and consent; these steps must not be automated.
+The first working conversational milestone is VKU-14. VKU-19 adds the full
+multi-benefit planning flow. Formal evaluation work, including VKU-27 and
+VKU-18, starts only after VKU-19 so implementation agents do not optimize an
+unfinished user flow.

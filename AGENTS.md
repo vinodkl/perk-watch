@@ -4,6 +4,10 @@
 
 Keep `data/frozen/` synthetic and reproducible. Real or personal card data and public-community provenance are local-only inputs under `PERKWATCH_DATA_DIR`.
 
+## Execution order
+
+Before choosing work, read `docs/architecture-flow.md` and check the current PerkWatch Capstone blocking relations in Linear. Linear status and blocking relations are the source of truth; the document explains the intended offline, online, and evaluation sequence. Do not start a blocked or below-the-line ticket unless the user explicitly changes the plan.
+
 ## Local real-data staging
 
 Read `.agents/skills/local-card-data-staging/SKILL.md` before collecting or importing card data.
