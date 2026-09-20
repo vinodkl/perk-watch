@@ -14,7 +14,8 @@ exact search. The index path is under `PERKWATCH_DATA_DIR` and is gitignored.
 ## Offline measurement
 
 Measured against the existing prepared snapshot only, without refreshing the
-corpus or making a network request:
+corpus or making any community request. The reranker evaluation made the
+allowed OpenAI model calls over prepared metadata:
 
 - corpus: `community-reddit-2026-09-20.v2`
 - terms: `terms-3e941d4c11315d20`
@@ -23,20 +24,23 @@ corpus or making a network request:
   served set for that benefit, matching the ticket's unranked baseline
 - baseline Recall@5: **10/10 = 1.0**
 - exact-index Recall@5: **10/10 = 1.0**, no improvement over baseline
-- baseline MRR: **10/10 = 1.0**
-- reranked MRR: **0/0**, not run because the index did not improve and no
-  reranker should be retained
-- quote-verbatim rate: **0/0**, not computable from paraphrase-only metadata;
-  no source body is stored by design
-- staleness-flag rate: **0/10 = 0.0**, all returned rows are terms-version
-  filtered; stale rows are excluded rather than flagged into output
+- baseline MRR: **10.0/10 = 1.0**
+- LLM-reranked MRR: **10.0/10 = 1.0**, using `gpt-4o-mini`; **10/10** calls
+  succeeded and returned valid idea-id permutations
+- quote-verbatim rate before/after: **0/10 = 0.0**; source bodies are not
+  stored by design, and the prepared output contains paraphrases only
+- staleness-flag rate before/after: **0/10 = 0.0**; stale rows are filtered by
+  terms version rather than served with a flag
 
-Failures: **0** during the offline safety/metadata checks. Coverage gaps:
-there are no relevance-labelled natural-language queries, no source bodies for
-quote comparison, and no LLM reranker run because network access was
-prohibited. The simpler unranked per-benefit baseline is therefore retained;
-the optional embedding index and reranker are deliberately cut from the
-served path.
+Failures: **0/10** reranker calls and **0** offline safety/metadata failures.
+The genuine reranker run used only the existing prepared metadata and made no
+community request. Because every benefit has exactly one served idea, the
+measured MRR tie is unavoidable. The simpler unranked per-benefit baseline is
+retained; the reranker remains cut.
+
+Coverage gaps: queries are corpus-derived rather than human relevance labels,
+and there is only one served idea per benefit. The optional embedding index is
+also cut because its Recall@5 tied the baseline.
 
 This cut does not remove the offline community pipeline or its conflicting-idea
 safety corpus.

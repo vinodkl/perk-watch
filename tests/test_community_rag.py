@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from perk_watch.community_rag import CommunityIdeaIndex, baseline, retrieval_metrics
+from perk_watch.community_rag import CommunityIdeaIndex, baseline, rerank, retrieval_metrics
 
 
 @dataclass
@@ -48,6 +48,12 @@ class CommunityRagTest(unittest.TestCase):
             self.assertEqual([row["idea_id"] for row in result], ["served"])
             self.assertEqual(result[0]["labels"], ["non-authoritative", "unverified"])
             self.assertEqual(baseline(rows["ideas"], benefit_id="hotel", terms_version="t1")[0]["idea_id"], "served")
+
+    def test_rerank_preserves_metadata_and_ids(self):
+        rows = [{"idea_id": "a", "idea": "a"}, {"idea_id": "b", "idea": "b"}]
+        result = rerank("query", rows, lambda _query, _rows: ["b", "a"])
+        self.assertEqual([row["idea_id"] for row in result], ["b", "a"])
+        self.assertEqual(result[0]["idea"], "b")
 
     def test_metrics_keep_exact_counts(self):
         metrics = retrieval_metrics([

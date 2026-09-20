@@ -76,7 +76,7 @@ def load_served_ideas(corpus_paths: Iterable[str | Path]) -> list[dict[str, Any]
 
 
 def baseline(ideas: Iterable[Mapping[str, Any]], *, benefit_id: str, terms_version: str) -> list[dict[str, Any]]:
-    served = _served(ideas)
+    served = _served_input(ideas)
     return [_public(row) for row in sorted(
         (row for row in served if row["benefit_id"] == benefit_id and row["terms_version"] == terms_version),
         key=lambda row: str(row["idea_id"]),
@@ -85,7 +85,7 @@ def baseline(ideas: Iterable[Mapping[str, Any]], *, benefit_id: str, terms_versi
 
 def serve_community(ideas: Iterable[Mapping[str, Any]], *, benefit_ids: Iterable[str], terms_version: str) -> dict[str, Any]:
     """The retained path: return every current served idea, without ranking."""
-    served = _served(ideas)
+    served = _served_input(ideas)
     wanted = set(benefit_ids)
     return {
         "available": True,
@@ -131,6 +131,15 @@ def retrieval_metrics(
 def _reciprocal_rank(retrieved: Sequence[str], relevant: Sequence[str]) -> float:
     wanted = set(relevant)
     return next((1 / position for position, idea_id in enumerate(retrieved, 1) if idea_id in wanted), 0.0)
+
+
+def _served_input(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    rows = list(rows)
+    if rows and all("review_label" not in row for row in rows):
+        if not all(row.get("labels") == ["non-authoritative", "unverified"] for row in rows):
+            raise ValueError("community input is missing review labels")
+        return sorted((dict(row) for row in rows), key=lambda row: row["idea_id"])
+    return _served(rows)
 
 
 def _served(rows: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]:
