@@ -1,0 +1,31 @@
+{
+  "dataset_version": "slice1-2026-09-19.v1",
+  "synthetic": true,
+  "ground_truth": "human-authored canonical-merchant labels",
+  "cases": [
+    {"transaction_id": "t001", "canonical_merchant": "digital_stream"},
+    {"transaction_id": "t002", "canonical_merchant": "digital_stream"},
+    {"transaction_id": "t003", "canonical_merchant": "resy"},
+    {"transaction_id": "t004", "canonical_merchant": "resy"},
+    {"transaction_id": "t005", "canonical_merchant": "resy"},
+    {"transaction_id": "t006", "canonical_merchant": "resy"},
+    {"transaction_id": "t007", "canonical_merchant": "walmart_plus"},
+    {"transaction_id": "t008", "canonical_merchant": null},
+    {"transaction_id": "t009", "canonical_merchant": "amex_hotel_portal"},
+    {"transaction_id": "t010", "canonical_merchant": "amex_hotel_portal"},
+    {"transaction_id": "t011", "canonical_merchant": "uber_one"},
+    {"transaction_id": "t012", "canonical_merchant": null},
+    {"transaction_id": "t013", "canonical_merchant": "airline_incidental_fee"},
+    {"transaction_id": "t014", "canonical_merchant": null},
+    {"transaction_id": "t015", "canonical_merchant": "clear_plus"},
+    {"transaction_id": "t016", "canonical_merchant": "global_entry"},
+    {"transaction_id": "t017", "canonical_merchant": "tsa_precheck"},
+    {"transaction_id": "t018", "canonical_merchant": "chase_travel"},
+    {"transaction_id": "t019", "canonical_merchant": null},
+    {"transaction_id": "t020", "canonical_merchant": "nexus"},
+    {"transaction_id": "t021", "canonical_merchant": "resy"},
+    {"transaction_id": "t022", "canonical_merchant": "airline_incidental_fee"},
+    {"transaction_id": "t023", "canonical_merchant": "clear_plus"},
+    {"transaction_id": "t024", "canonical_merchant": null}
+  ]
+}
