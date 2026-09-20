@@ -50,6 +50,18 @@ class StatusResult:
     deadline: date | None = None
 
 
+def load_persisted_benefits(path: str | Path) -> list[Benefit]:
+    """Load computation rules from SQLite, never from source prose or proposals."""
+    from .rule_registry import SQLiteRuleRegistry
+    return SQLiteRuleRegistry(path=path).active_benefits()
+
+
+def evaluate_persisted_benefits(
+    registry_path: str | Path, ledger: object, as_of: date, **kwargs: object,
+) -> list[StatusResult]:
+    return evaluate_all_benefits(load_persisted_benefits(registry_path), ledger, as_of, **kwargs)
+
+
 def load_benefit_registry(
     benefits_path: str | Path, *, merchant_groups_path: str | Path | None = None,
 ) -> tuple[list[Benefit], dict[str, set[str]], frozenset[str]]:

@@ -10,12 +10,14 @@ from .community import prepare_community
 from .benefit_preparation import prepare_benefits
 from .raw_data import data_root, initialize, source_records
 from .transactions import SQLiteLedger, TransactionSource
+from .rule_registry import SQLiteRuleRegistry
 
 
 def prepare_data(*, root: str | Path | None = None) -> dict[str, Any]:
     """Normalize benefits, transactions, and community notes in one offline run."""
     root = initialize(root or data_root())
     benefits = prepare_benefits(root=root)
+    rules = _prepare_rules(root, benefits)
     transaction_count = _prepare_transactions(root)
     community = _prepare_community(root)
     report = {
@@ -29,11 +31,30 @@ def prepare_data(*, root: str | Path | None = None) -> dict[str, Any]:
             "diff_counts": {key: len(value) for key, value in benefits["diff"].items()},
             "invalidations": benefits["invalidations"],
         },
+        "rules": rules,
         "transactions": {"count": transaction_count},
         "community": community,
     }
     _write(root / "prepared" / "report.json", report)
     return report
+
+
+def _prepare_rules(root: Path, benefit_report: dict[str, Any]) -> dict[str, int]:
+    corpus = _read(root / "prepared" / "benefits" / "current.json", {})
+    clauses = corpus.get("clauses", [])
+    registry_path = root / "prepared" / "rules" / "registry.sqlite3"
+    registry_exists = registry_path.exists()
+    changed = set()
+    diff = benefit_report.get("diff", {})
+    changed.update(row["clause_id"] for row in diff.get("added", []))
+    changed.update(row["clause_id"] for row in diff.get("removed", []))
+    changed.update(row["after"]["clause_id"] for row in diff.get("changed", []))
+    result = SQLiteRuleRegistry(path=registry_path).ingest(
+        clauses, changed_clause_ids=None if not registry_exists else changed
+    )
+    registry = SQLiteRuleRegistry(path=registry_path)
+    registry.remove_missing({row["clause_id"] for row in clauses})
+    return result
 
 
 def _prepare_transactions(root: Path) -> int:
