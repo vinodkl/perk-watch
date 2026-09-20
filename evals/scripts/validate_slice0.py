@@ -6,8 +6,9 @@ import hashlib
 import json
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-DATA = ROOT / "data"
+ROOT = Path(__file__).resolve().parents[2]
+DATA = ROOT / "evals/data"
+EVALS_DATA = DATA
 VERSION = "slice0-2026-09-19.v1"
 
 
@@ -26,7 +27,7 @@ def main():
     clauses = load(frozen_data / "terms/clauses.json")
     served = load(frozen_data / "community/served_ideas.json")
     conflicts = load(frozen_data / "community/conflicting_ideas.json")
-    frozen = load(frozen_data / "eval/frozen_cases.json")
+    frozen = load(ROOT / "evals/data/frozen/eval/frozen_cases.json")
 
     assert benefits["dataset_version"] == VERSION
     assert frozen["dataset_version"] == VERSION
@@ -68,15 +69,12 @@ def main():
     assert all(case["benefit_id"] in benefit_ids and case["ground_truth"] if "ground_truth" in case else True for case in cases)
     assert all(case["expected_used_minor"] >= 0 and case["expected_remaining_minor"] >= 0 for case in cases)
 
-    fixture_path = DATA / "frozen/fixtures/transactions.csv"
+    fixture_path = EVALS_DATA / "frozen/fixtures/transactions.csv"
     with fixture_path.open(encoding="utf-8", newline="") as f:
         rows = list(csv.DictReader(f))
     assert rows and all(row["synthetic"] == "true" for row in rows)
 
-    files = sorted(
-        p for p in DATA.rglob("*")
-        if p.is_file() and DATA / "real" not in p.parents
-    )
+    files = sorted(p for p in DATA.rglob("*") if p.is_file())
     digest = hashlib.sha256()
     for path in files:
         digest.update(path.relative_to(ROOT).as_posix().encode())

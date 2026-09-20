@@ -1,9 +1,9 @@
 ---
 name: local-card-data-staging
-description: User-assisted, provider-agnostic staging of local card benefits and transaction exports for PerkWatch.
+description: User-assisted, provider-agnostic collection of local card benefits and transaction exports for PerkWatch.
 ---
 
-# Local card-data staging
+# Local card data collection
 
 Use this skill when collecting real card benefits or transaction exports for
 local smoke testing. The workflow is provider-agnostic; issuer UI steps are
@@ -35,26 +35,28 @@ allowed to differ, but the privacy boundary does not.
    issuer offers a consolidated year-to-date export, prefer it over many
    overlapping files. Do not include pending charges unless the user asks for
    them.
-6. Import files through the existing staging API:
+6. Import files with the stable card ID:
 
    ```python
-   from perk_watch.staging import import_benefit_guide, import_transactions
+   from perk_watch.raw_data import import_benefit_guide, import_transactions
 
-   import_benefit_guide(path, url=issuer_url)
-   import_transactions(path)
+   import_benefit_guide(guide_path, card="amex_platinum", url=issuer_url)
+   import_transactions(export_path, card="amex_platinum")
    ```
 
-   Set `PERKWATCH_DATA_DIR` in the shell before running the import. Imports are
-   content-addressed and idempotent.
+   Use the same card ID on every monthly run. Imports are content-addressed and
+   idempotent under `PERKWATCH_DATA_DIR/raw/<card>/`.
 7. Remove temporary downloads from `~/Downloads` or `/tmp` after verifying the
-   staged copies. Do not remove user files that were not created for this run.
-8. Run `python3 scripts/check_local_data_guard.py` and the relevant frozen-data
-   validators. Report provider, date range, file counts, and blockers without
-   printing transaction rows, account numbers, or benefit membership numbers.
+   raw copies. Do not remove user files that were not created for this run.
+8. After all card and community collection finishes, run
+   `PYTHONPATH=src python3 scripts/prepare_data.py`, then
+   `python3 scripts/check_local_data_guard.py`. Report card IDs, date range,
+   file counts, and blockers without printing transaction rows, account
+   numbers, or benefit membership numbers.
 
 ## Provider neutrality
 
-Do not bake issuer selectors, account identifiers, or URLs into the staging
+Do not bake issuer selectors, account identifiers, or URLs into the raw-data
 module. Provider-specific navigation belongs in the current browser session or
 in a short follow-up note, never in credentials or a reusable login script.
 
@@ -65,15 +67,13 @@ captured merely because a page displays an "all benefits" count.
 
 ## Data layout
 
-The configured root contains:
+The configured root contains one directory per card:
 
-- `raw/benefits/`: content-addressed guide or benefit-page captures.
-- `raw/transactions/`: content-addressed CSV/OFX exports.
-- `manifests/`: source type, URL or filename, UTC import timestamp, content
-  hash, and optional terms version.
-- `derived/registry/`, `derived/ledger/`, `derived/indexes/`: reserved for
-  later local-only processing; never commit their contents.
+- `raw/<card>/benefits/`: content-addressed guides or benefit-page captures.
+- `raw/<card>/transactions/`: content-addressed CSV/OFX exports.
+- `raw/<card>/community/`: sanitized community inputs collected by the other skill.
+- `raw/<card>/sources.json`: source URL, fetch time, filename, and content hash.
+- `prepared/`: the linked, normalized local model built by `prepare_data.py`.
 
-Keep each provider's raw file separate. A shared root is fine; merging files
-is not. Use manifests and source filenames to distinguish issuers until an
-explicit schema change adds provider metadata.
+Use a stable card ID such as `amex_platinum` or `chase_sapphire_preferred`;
+the directory becomes `amex-platinum` or `chase-sapphire-preferred`.

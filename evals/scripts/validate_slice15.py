@@ -8,9 +8,10 @@ import os
 import tempfile
 from pathlib import Path
 
-from perk_watch.community import freeze_snapshot, stale_idea_ids
+from perk_watch.community import prepare_community, stale_idea_ids
+from perk_watch.raw_data import card_directory
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def load(path: Path):
@@ -19,21 +20,23 @@ def load(path: Path):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--card", required=True)
     parser.add_argument("--version", required=True)
     parser.add_argument("--data-root", type=Path, default=os.environ.get("PERKWATCH_DATA_DIR"))
     args = parser.parse_args()
     if args.data_root is None:
         parser.error("set PERKWATCH_DATA_DIR or pass --data-root")
-    corpus = args.data_root / "community" / args.version
+    corpus = args.data_root / "raw" / card_directory(args.card) / "community" / args.version
     candidates = load(corpus / "candidates.json")
     judgments = load(corpus / "model_judgments.json")["judgments"]
     collection = load(corpus / "collection_results.json")
-    benefits = load(ROOT / "data/frozen/terms/benefits.json")["benefits"]
+    benefits = load(ROOT / "evals/data/frozen/terms/benefits.json")["benefits"]
     version, terms_version = candidates["corpus_version"], candidates["terms_version"]
     assert version == args.version
-    served, conflicts, manifest = (load(corpus / "snapshot" / name) for name in (
+    prepared = args.data_root / "prepared" / "community" / card_directory(args.card) / args.version
+    served, conflicts, manifest = (load(prepared / name) for name in (
         "served_ideas.json", "conflicting_ideas.json", "manifest.json"))
-    expected = {row["benefit_id"] for row in benefits}
+    expected = {row["benefit_id"] for row in benefits if row["card"] == args.card}
     results = collection["collection_results"]
     assert {row["benefit_id"] for row in results} == expected
     assert all(row["result_status"] in {"results_found", "no_usable_ideas"} for row in results)
@@ -47,21 +50,21 @@ def main() -> None:
     assert all(row["served"] and row["review_label"] == "no_known_conflict" for row in served["ideas"])
     assert all(not row["served"] and row["review_label"] == "explicit_conflict" for row in conflicts["ideas"])
     assert all(sum(row["benefit_id"] == benefit for row in served["ideas"]) <= 8 for benefit in expected)
-    seeded = load(ROOT / "data/frozen/community/conflicting_ideas.json")["ideas"]
+    seeded = load(ROOT / "evals/data/frozen/community/conflicting_ideas.json")["ideas"]
     correct = sum(row["review_label"].startswith("conflicts_") == row["expected_conflict"] for row in seeded)
     assert seeded and correct == len(seeded)
     assert manifest["model_review_only"] and not manifest["network_accessed"] and not manifest["production_index_modified"]
     with tempfile.TemporaryDirectory() as directory:
         output = Path(directory) / version
-        freeze_snapshot(candidates["candidates"], judgments, benefit_ids=expected, terms_version=terms_version,
+        prepare_community(candidates["candidates"], judgments, benefit_ids=expected, terms_version=terms_version,
                         output_dir=output, corpus_version=version,
-                        production_index_dir=args.data_root / "derived/indexes/community")
+                        production_index_dir=args.data_root / "prepared/indexes/community")
         for name in ("served_ideas.json", "conflicting_ideas.json", "manifest.json"):
-            assert (output / name).read_bytes() == (corpus / "snapshot" / name).read_bytes()
+            assert (output / name).read_bytes() == (prepared / name).read_bytes()
     try:
-        freeze_snapshot(candidates["candidates"], judgments, benefit_ids=expected, terms_version=terms_version,
-                        output_dir=args.data_root / "derived/indexes/community", corpus_version=version,
-                        production_index_dir=args.data_root / "derived/indexes/community")
+        prepare_community(candidates["candidates"], judgments, benefit_ids=expected, terms_version=terms_version,
+                        output_dir=args.data_root / "prepared/indexes/community", corpus_version=version,
+                        production_index_dir=args.data_root / "prepared/indexes/community")
     except ValueError:
         pass
     else:

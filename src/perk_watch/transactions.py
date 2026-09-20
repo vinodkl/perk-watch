@@ -46,8 +46,8 @@ class SQLiteLedger:
         if path is not None and root is not None:
             raise ValueError("pass root or path, not both")
         if path is None:
-            from .staging import data_root
-            path = (Path(root).expanduser() if root is not None else data_root()) / "derived" / "ledger" / "ledger.sqlite3"
+            from .raw_data import data_root
+            path = (Path(root).expanduser() if root is not None else data_root()) / "prepared" / "transactions" / "ledger.sqlite3"
         self.path = Path(path).expanduser()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
@@ -155,18 +155,33 @@ class TransactionSource:
         raise ValueError("transaction source must be a .csv or .ofx file")
 
     def _csv(self) -> list[Transaction]:
-        with self.path.open(encoding="utf-8", newline="") as handle:
+        with self.path.open(encoding="utf-8-sig", newline="") as handle:
             rows = list(csv.DictReader(handle))
-        required = {"transaction_id", "card", "transaction_date", "posted_date", "descriptor", "amount_minor", "mcc"}
-        if not rows or not required <= set(rows[0]):
-            raise ValueError("CSV export is missing normalized transaction columns")
-        return [
-            _transaction(
-                row["transaction_id"], row["card"], row["transaction_date"], row["posted_date"],
-                row["descriptor"], row["amount_minor"], row["mcc"],
-            )
-            for row in rows
-        ]
+        if not rows:
+            raise ValueError("CSV export contains no transactions")
+        fields = set(rows[0])
+        normalized = {"transaction_id", "card", "transaction_date", "posted_date", "descriptor", "amount_minor", "mcc"}
+        if normalized <= fields:
+            return [
+                _transaction(
+                    row["transaction_id"], row["card"], row["transaction_date"], row["posted_date"],
+                    row["descriptor"], row["amount_minor"], row["mcc"],
+                )
+                for row in rows
+            ]
+        if not self.card:
+            raise ValueError("issuer CSV imports require their card ID")
+        if {"Transaction Date", "Post Date", "Description", "Amount", "Type"} <= fields:
+            values = [
+                (row["Transaction Date"], row["Post Date"], row["Description"],
+                 -_minor_units(row["Amount"]), None)
+                for row in rows if row["Type"] != "Payment"
+            ]
+            return _issuer_transactions(self.card, values)
+        if {"Date", "Description", "Amount"} <= fields:
+            values = [(row["Date"], row["Date"], row["Description"], _minor_units(row["Amount"]), None) for row in rows]
+            return _issuer_transactions(self.card, values)
+        raise ValueError("unsupported transaction CSV columns")
 
     def _ofx(self) -> list[Transaction]:
         if not self.card:
@@ -265,6 +280,17 @@ def _row_decision(row: sqlite3.Row) -> MerchantDecision:
                             json.loads(row["metadata_json"]))
 
 
+def _issuer_transactions(card: str, values: list[tuple[str, str, str, int, int | None]]) -> list[Transaction]:
+    occurrences: dict[str, int] = {}
+    rows = []
+    for transaction_date, posted_date, descriptor, amount_minor, mcc in values:
+        identity = "|".join((card, transaction_date, posted_date, descriptor.strip(), str(amount_minor)))
+        occurrences[identity] = occurrences.get(identity, 0) + 1
+        transaction_id = hashlib.sha256(f"{identity}|{occurrences[identity]}".encode()).hexdigest()[:24]
+        rows.append(_transaction(transaction_id, card, transaction_date, posted_date, descriptor, amount_minor, mcc))
+    return rows
+
+
 def _transaction(transaction_id, card, transaction_date, posted_date, descriptor, amount_minor, mcc) -> Transaction:
     try:
         transaction_id, card, descriptor = str(transaction_id).strip(), str(card).strip(), str(descriptor).strip()
@@ -279,7 +305,12 @@ def _transaction(transaction_id, card, transaction_date, posted_date, descriptor
 
 
 def _date(value: str) -> date:
-    return datetime.strptime(value, "%Y-%m-%d").date()
+    for pattern in ("%Y-%m-%d", "%m/%d/%Y"):
+        try:
+            return datetime.strptime(value, pattern).date()
+        except ValueError:
+            pass
+    raise ValueError(f"unsupported transaction date: {value}")
 
 
 def _ofx_date(value: str) -> str:

@@ -32,10 +32,10 @@ flowchart TB
     OP([User / operator])
 
     OP -->|"Manual account login and check"| V24["✅ VKU-24<br/>Verify account benefits"]
-    V24 --> V25["⏳ VKU-25<br/>Expand benefit coverage"]
-    V25 --> V26["⏳ VKU-26<br/>Refresh guides and report invalidations"]
+    V24 --> V25["✅ VKU-25<br/>Expand benefit coverage"]
+    V25 --> V26["✅ VKU-26<br/>Refresh guides and report invalidations"]
 
-    OP -->|"Benefit guides, CSV / OFX"| S22["✅ VKU-22<br/>Local-only data staging"]
+    OP -->|"Benefit guides, CSV / OFX"| S22["✅ VKU-22<br/>Local raw-data collection"]
     S22 --> T15["✅ VKU-15<br/>Normalize transactions<br/>Resolve merchants"]
     T15 --> P29["✅ VKU-29<br/>Persist ledger and merchant decisions"]
     P29 --> LEDGER[("SQLite transaction ledger")]
@@ -56,8 +56,8 @@ flowchart TB
     classDef done fill:#dcfce7,stroke:#15803d,color:#14532d;
     classDef pending fill:#fef3c7,stroke:#b45309,color:#78350f;
     classDef optional fill:#f3e8ff,stroke:#7e22ce,color:#581c87;
-    class S22,T15,C23,C12,V24,P29 done;
-    class V25,V26,R17,O13 pending;
+    class S22,T15,C23,C12,V24,V25,V26,P29 done;
+    class R17,O13 pending;
     class O28 optional;
 ```
 
@@ -171,13 +171,13 @@ flowchart LR
 | Ticket | Flow | Architectural role | User relevance |
 |---|---|---|---|
 | **VKU-12 ✅** | Offline + evaluation | Clause schema, fixtures, frozen set | Supplies reproducible test evidence, not runtime data |
-| **VKU-22 ✅** | Offline | Local-only staging boundary | Safely receives manually supplied guides and exports |
+| **VKU-22 ✅** | Offline | Local raw-data boundary | Safely receives manually supplied guides and exports |
 | **VKU-15 ✅** | Offline | Transaction normalization and merchant resolution | Converts exports into structured evidence before queries |
 | **VKU-23 ✅** | Offline + evaluation | Real offline community collection | Produces source-linked ideas and the safety corpus |
 | **VKU-16 ✅** | Online | Deterministic authority | Returns exact statuses, values, periods, and deadlines |
 | **VKU-24 ✅** | Offline/manual | Account verification | Ensures prepared benefits match the actual account |
-| **VKU-25 ⏳** | Offline | Benefit-scope expansion | Covers every benefit across both cards |
-| **VKU-26 ⏳** | Offline | Guide refresh and invalidation | Prevents stale terms from reaching runtime |
+| **VKU-25 ✅** | Offline | Benefit-scope expansion | Covers every benefit across both cards |
+| **VKU-26 ✅** | Offline | Guide refresh and invalidation | Prevents stale terms from reaching runtime |
 | **VKU-29 ✅** | Offline storage | SQLite ledger and merchant persistence | Makes runtime restart-safe and model-independent |
 | **VKU-17 ⏳** | Offline storage | Extractor/Verifier and SQLite registry | Produces the only rules the online evaluator may use |
 | **VKU-13 ⏳** | Offline build + online read | Official-clause index and retrieval | Supplies version-correct citations during a query |
@@ -213,10 +213,10 @@ constraints.
 
 ## Current execution order
 
-**Done foundation:** VKU-12, VKU-15, VKU-16, VKU-22, VKU-23, VKU-24, and
-VKU-29.
+**Done foundation:** VKU-12, VKU-15, VKU-16, VKU-22, VKU-23, VKU-24,
+VKU-25, VKU-26, and VKU-29.
 
-**Next:** VKU-25 is the only unblocked remaining ticket.
+**Next:** VKU-13 and VKU-17 are unblocked and may proceed in parallel.
 
 ```text
 VKU-25 → VKU-26 → ┬→ VKU-13 ─┐

@@ -4,24 +4,24 @@ import json
 from pathlib import Path
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from perk_watch.transactions import TransactionSource, resolve_merchants
 
 
 def main():
-    transactions = TransactionSource(ROOT / "data/frozen/fixtures/transactions.csv").load()
-    assert transactions == TransactionSource(ROOT / "data/frozen/fixtures/transactions.csv").load()
+    transactions = TransactionSource(ROOT / "evals/data/frozen/fixtures/transactions.csv").load()
+    assert transactions == TransactionSource(ROOT / "evals/data/frozen/fixtures/transactions.csv").load()
     assert all(isinstance(row.amount_minor, int) for row in transactions)
 
-    ofx = TransactionSource(ROOT / "data/frozen/fixtures/transactions.ofx", card="amex_platinum").load()
+    ofx = TransactionSource(ROOT / "evals/data/frozen/fixtures/transactions.ofx", card="amex_platinum").load()
     assert [(row.transaction_id, row.transaction_date.isoformat(), row.posted_date.isoformat(), row.mcc) for row in ofx] == [
         ("ofx-001", "2026-01-06", "2026-01-06", 4899),
         ("ofx-002", "2026-03-31", "2026-04-04", 5812),
     ]
 
-    cases = json.loads((ROOT / "data/frozen/eval/merchant_cases.json").read_text())["cases"]
+    cases = json.loads((ROOT / "evals/data/frozen/eval/merchant_cases.json").read_text())["cases"]
     expected = {case["transaction_id"]: case["canonical_merchant"] for case in cases}
     descriptors = {row.descriptor: expected[row.transaction_id] for row in transactions}
     results = resolve_merchants(transactions, descriptors.get)

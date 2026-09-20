@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
-ALLOWED_SYNTHETIC = {"data/frozen/fixtures/transactions.ofx"}
+ALLOWED_SYNTHETIC = {"evals/data/frozen/fixtures/transactions.ofx"}
 FORBIDDEN_NAMES = {".env", "credentials", "secrets", "token", "password"}
 FORBIDDEN_SUFFIXES = (".pdf", ".sqlite", ".sqlite3", ".db", ".index")
 
@@ -27,7 +27,7 @@ def main() -> None:
         lower = name.lower()
         parts = {part.lower() for part in path.parts}
         if any(part in {"local", "real", "raw", "derived", "manifests"} for part in parts) and name not in {
-            "data/frozen/fixtures/transactions.ofx"
+            "evals/data/frozen/fixtures/transactions.ofx"
         }:
             # Existing synthetic data is deliberately outside these local-only directories.
             bad.append(f"local-data path: {name}")

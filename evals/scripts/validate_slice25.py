@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from perk_watch.benefits import Benefit, load_benefit_registry, resolve_status
@@ -16,8 +16,8 @@ from perk_watch.transactions import ResolvedTransaction, Transaction
 
 def main() -> None:
     benefits, merchant_groups, excluded = load_benefit_registry(
-        ROOT / "data/frozen/terms/benefits.json",
-        merchant_groups_path=ROOT / "data/frozen/terms/merchant_groups.json",
+        ROOT / "evals/data/frozen/terms/benefits.json",
+        merchant_groups_path=ROOT / "evals/data/frozen/terms/merchant_groups.json",
     )
 
     # Every trackable benefit routes matching through a named data-driven group.
@@ -48,7 +48,7 @@ def main() -> None:
     assert deferred.remaining_minor is None and deferred.deadline is None
 
     # Frozen coverage manifest records the split and omissions.
-    coverage = json.loads((ROOT / "data/frozen/terms/coverage.json").read_text())
+    coverage = json.loads((ROOT / "evals/data/frozen/terms/coverage.json").read_text())
     assert coverage["frozen_benefit_types"] == 10
     assert set(coverage["trackable_merchant_groups"]) == set(merchant_groups)
 

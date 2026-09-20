@@ -7,7 +7,7 @@ from datetime import date
 from pathlib import Path
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 from perk_watch.benefits import Benefit, StatusResult, benefit_period, resolve_benefits, resolve_status
@@ -19,14 +19,14 @@ def parse(value: str) -> date:
 
 
 def main() -> None:
-    frozen = json.loads((ROOT / "data/frozen/eval/frozen_cases.json").read_text())
-    facts = json.loads((ROOT / "data/frozen/eval/status_facts.json").read_text())
-    benefits = {row["benefit_id"]: Benefit.from_dict(row) for row in json.loads((ROOT / "data/frozen/terms/benefits.json").read_text())["benefits"]}
-    groups_doc = json.loads((ROOT / "data/frozen/terms/merchant_groups.json").read_text())
+    frozen = json.loads((ROOT / "evals/data/frozen/eval/frozen_cases.json").read_text())
+    facts = json.loads((ROOT / "evals/data/frozen/eval/status_facts.json").read_text())
+    benefits = {row["benefit_id"]: Benefit.from_dict(row) for row in json.loads((ROOT / "evals/data/frozen/terms/benefits.json").read_text())["benefits"]}
+    groups_doc = json.loads((ROOT / "evals/data/frozen/terms/merchant_groups.json").read_text())
     merchant_groups = {name: set(codes) for name, codes in groups_doc["groups"].items()}
     excluded = frozenset(groups_doc["excluded_descriptors"])
-    transactions = TransactionSource(ROOT / "data/frozen/fixtures/transactions.csv").load()
-    merchants = {row["transaction_id"]: row["canonical_merchant"] for row in json.loads((ROOT / "data/frozen/eval/merchant_cases.json").read_text())["cases"]}
+    transactions = TransactionSource(ROOT / "evals/data/frozen/fixtures/transactions.csv").load()
+    merchants = {row["transaction_id"]: row["canonical_merchant"] for row in json.loads((ROOT / "evals/data/frozen/eval/merchant_cases.json").read_text())["cases"]}
     resolved = {row.transaction.transaction_id: row for row in resolve_merchants(transactions, lambda descriptor: next((merchants[t.transaction_id] for t in transactions if t.descriptor == descriptor), None))}
     observed = {key: parse(value) for key, value in facts["observed_on"].items()}
 

@@ -11,7 +11,7 @@ LABELS = {"explicit_conflict", "no_known_conflict", "unclear"}
 FORBIDDEN_FIELDS = {"author", "username", "body", "comment_body", "thread", "title"}
 
 
-def freeze_snapshot(candidates: Iterable[Mapping[str, object]], judgments: Iterable[Mapping[str, object]], *,
+def prepare_community(candidates: Iterable[Mapping[str, object]], judgments: Iterable[Mapping[str, object]], *,
                     benefit_ids: Iterable[str], terms_version: str, output_dir: str | Path,
                     corpus_version: str, production_index_dir: str | Path) -> dict[str, object]:
     """Freeze reviewed public metadata; network collection happens before this call."""
