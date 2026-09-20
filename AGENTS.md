@@ -2,7 +2,7 @@
 
 ## Scope
 
-Keep the frozen synthetic evaluation reproducible. Real or personal data is local smoke-test input only.
+Keep `data/frozen/` synthetic and reproducible. Real or personal card data and public-community provenance are local-only inputs under `PERKWATCH_DATA_DIR`.
 
 ## Local real-data staging
 
@@ -14,9 +14,18 @@ Read `.agents/skills/local-card-data-staging/SKILL.md` before collecting or impo
 - Never edit or replace `data/frozen/` with real data.
 - User login, MFA, CAPTCHA, account selection, and any consent must remain manual.
 
+## Community corpus collection
+
+A dedicated offline corpus-setup job may make read-only, unauthenticated requests to public Reddit pages for the currently approved Slice scope. It may run only during an explicit collection/refresh command, never from application runtime or an end-user application query.
+
+- Store only post/comment IDs, public URLs, source and fetch dates, short paraphrased excerpts, derived ideas, benefit IDs, and review metadata under `PERKWATCH_DATA_DIR/community/<corpus-version>/`.
+- Do not commit community sources, snapshots, full threads, usernames, credentials, cookies, session artifacts, or private/deleted content.
+- Do not automate login, solve CAPTCHA/MFA, or bypass access controls. A login wall is a blocker.
+- Keep collection deterministic after capture: the application reads only the versioned frozen snapshot and makes no external community requests.
+
 ## Safety boundaries
 
-Do not add automated login, credential storage, bank/card APIs, cookie extraction, or live Reddit lookup. Do not commit real data or provider session artifacts.
+Do not add automated login, credential storage, bank/card APIs, cookie extraction, or live external lookup from application runtime or end-user application queries. Do not commit real card data, public-community corpus data, provider session artifacts, or full community threads.
 
 ## Checks
 

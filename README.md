@@ -1,5 +1,14 @@
 # PerkWatch
 
+## Slice 1.5 (VKU-23), frozen community corpus
+
+A manual, read-only public Reddit collection is local-only at `PERKWATCH_DATA_DIR/community/<corpus-version>/`; this is the future local RAG source. `perk_watch.community.freeze_snapshot` turns it into a versioned offline snapshot without network access. It retains only post IDs, public URLs, dates, short paraphrases, and derived ideas, never credentials or full threads.
+
+```sh
+PERKWATCH_DATA_DIR=data/real PYTHONPATH=src python3 scripts/freeze_community_corpus.py --version community-reddit-2026-09-20.v1
+PERKWATCH_DATA_DIR=data/real PYTHONPATH=src python3 scripts/validate_slice15.py --version community-reddit-2026-09-20.v1
+```
+
 ## Slice 2 (VKU-16), deterministic benefit status
 
 `perk_watch.benefits` calculates all benefit periods, eligible transactions, remaining minor units, deadlines, and the four statuses without an LLM. Merchant resolution may supply canonical merchant facts, but it cannot calculate or override eligibility, dates, amounts, occurrence, remaining value, deadlines, or status. Missing enrollment, portal, anniversary, limit, or potentially eligible transaction evidence returns `indeterminate` with reason and evidence IDs.
@@ -30,7 +39,7 @@ PYTHONPATH=src python3 scripts/validate_slice1.py
 
 ## Slice 0 (VKU-12), frozen inputs
 
-Frozen, offline-only inputs for the PerkWatch evaluation. Everything in `data/` is synthetic except the schema shape and source metadata fields. No real benefit guides, statements, or full Reddit threads are included.
+Frozen, offline-only inputs for the PerkWatch evaluation. Terms and transaction fixtures are synthetic. Public Reddit provenance and its local RAG snapshot live under `PERKWATCH_DATA_DIR/community/`, never `data/frozen/`.
 
 ## Contents
 
@@ -56,4 +65,4 @@ The validator prints dataset version, category counts, exact numerators/denomina
 
 ## Provenance boundary
 
-The fixture records use `synthetic: true` and `example.invalid` URLs. Replace neither with copied guide text, personal statements, nor full Reddit threads. A future offline collector may store source IDs, URLs, dates, short excerpts, derived ideas, and review metadata only.
+Synthetic fixtures use `synthetic: true` and `example.invalid` URLs. Do not replace them with copied guide text, personal statements, or full Reddit threads. The approved offline community collector may store only public source IDs, URLs, dates, short paraphrases, derived ideas, and review metadata.
