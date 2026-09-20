@@ -2,4 +2,7 @@
 name = "perk-watch"
 version = "0.0.0"
 requires-python = ">=3.13,<3.14"
-dependencies = []
+dependencies = [
+    "numpy>=2.0",
+    "openai>=1.0",
+]
