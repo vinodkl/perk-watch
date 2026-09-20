@@ -1,5 +1,13 @@
 # PerkWatch
 
+## Slice 2 (VKU-16), deterministic benefit status
+
+`perk_watch.benefits` calculates all benefit periods, eligible transactions, remaining minor units, deadlines, and the four statuses without an LLM. Merchant resolution may supply canonical merchant facts, but it cannot calculate or override eligibility, dates, amounts, occurrence, remaining value, deadlines, or status. Missing enrollment, portal, anniversary, limit, or potentially eligible transaction evidence returns `indeterminate` with reason and evidence IDs.
+
+```sh
+PYTHONPATH=src python3 scripts/validate_slice2.py
+```
+
 ## Slice 0.5 (VKU-22), local real-data staging
 
 Manual public benefit guides and local CSV/OFX exports can be staged outside the repository. Set `PERKWATCH_DATA_DIR` or use the default `~/.local/share/perk-watch`; see [docs/local-data-staging.md](docs/local-data-staging.md). No login, account API, live lookup, or credential storage is used.
