@@ -22,6 +22,9 @@ def main() -> None:
     frozen = json.loads((ROOT / "data/frozen/eval/frozen_cases.json").read_text())
     facts = json.loads((ROOT / "data/frozen/eval/status_facts.json").read_text())
     benefits = {row["benefit_id"]: Benefit.from_dict(row) for row in json.loads((ROOT / "data/frozen/terms/benefits.json").read_text())["benefits"]}
+    groups_doc = json.loads((ROOT / "data/frozen/terms/merchant_groups.json").read_text())
+    merchant_groups = {name: set(codes) for name, codes in groups_doc["groups"].items()}
+    excluded = frozenset(groups_doc["excluded_descriptors"])
     transactions = TransactionSource(ROOT / "data/frozen/fixtures/transactions.csv").load()
     merchants = {row["transaction_id"]: row["canonical_merchant"] for row in json.loads((ROOT / "data/frozen/eval/merchant_cases.json").read_text())["cases"]}
     resolved = {row.transaction.transaction_id: row for row in resolve_merchants(transactions, lambda descriptor: next((merchants[t.transaction_id] for t in transactions if t.descriptor == descriptor), None))}
@@ -32,6 +35,7 @@ def main() -> None:
         cardmember_since={key: parse(value) for key, value in facts["cardmember_since"].items()},
         enrolled=facts["enrolled"], portal_confirmed=facts["portal_confirmed"],
         limit_minor=facts["limit_minor"], observed_on=observed,
+        merchant_groups=merchant_groups, excluded_descriptors=excluded,
     )
     assert len(all_results) == len(benefits) == 10
 
@@ -47,6 +51,8 @@ def main() -> None:
             "portal_confirmed": override.get("portal_confirmed", facts["portal_confirmed"].get(benefit.benefit_id)),
             "observed_on": observed,
             "period_as_of": parse(override["period_as_of"]) if "period_as_of" in override else None,
+            "merchant_groups": merchant_groups,
+            "excluded_descriptors": excluded,
         }
         if override.get("aggregate_transaction_periods"):
             parts = [resolve_status(benefit, [row], parse(case["as_of"]), **(kwargs | {"period_as_of": row.transaction.transaction_date})) for row in rows]

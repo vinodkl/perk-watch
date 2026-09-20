@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, timedelta
+import json
+from pathlib import Path
 from typing import Iterable, Mapping
 
 from .transactions import ResolvedTransaction, Transaction
@@ -16,6 +18,8 @@ class Benefit:
     period_amount_minor: int | None
     enrollment_required: bool = False
     portal_gated: bool = False
+    merchant_group: str | None = None
+    missing_data_source: str | None = None
 
     @classmethod
     def from_dict(cls, value: Mapping[str, object]) -> "Benefit":
@@ -25,6 +29,8 @@ class Benefit:
             period_amount_minor=value["period_amount_minor"] if value["period_amount_minor"] is None else int(value["period_amount_minor"]),
             enrollment_required=bool(value.get("enrollment_required", False)),
             portal_gated=bool(value.get("portal_gated", False)),
+            merchant_group=value.get("merchant_group"),
+            missing_data_source=value.get("missing_data_source"),
         )
 
 
@@ -41,23 +47,22 @@ class StatusResult:
     evidence_ids: tuple[str, ...]
     used_minor: int
     remaining_minor: int | None
-    deadline: date
+    deadline: date | None = None
 
 
-MERCHANTS = {
-    "amex_platinum_digital_entertainment": {"digital_stream"},
-    "amex_platinum_walmart_plus": {"walmart_plus"},
-    "amex_platinum_resy": {"resy"},
-    "amex_platinum_hotel": {"amex_hotel_portal"},
-    "amex_platinum_uber_one": {"uber_one"},
-    "amex_platinum_airline_fee": {"airline_incidental_fee"},
-    "amex_platinum_clear": {"clear_plus"},
-    "amex_platinum_global_entry": {"global_entry", "tsa_precheck"},
-    "chase_sapphire_preferred_hotel": {"chase_travel"},
-    "chase_sapphire_preferred_global_entry": {"global_entry", "tsa_precheck", "nexus"},
-}
-# These are deterministic term exclusions, not model judgments.
-EXCLUDED_DESCRIPTORS = {"UBER CASH WALLET", "AIRLINE TICKET"}
+def load_benefit_registry(
+    benefits_path: str | Path, *, merchant_groups_path: str | Path | None = None,
+) -> tuple[list[Benefit], dict[str, set[str]], frozenset[str]]:
+    """Load trackable benefits and the data-driven merchant-group table."""
+    document = json.loads(Path(benefits_path).read_text(encoding="utf-8"))
+    benefits = [Benefit.from_dict(row) for row in document["benefits"]]
+    groups: dict[str, set[str]] = {}
+    exclusions: frozenset[str] = frozenset()
+    if merchant_groups_path is not None:
+        group_document = json.loads(Path(merchant_groups_path).read_text(encoding="utf-8"))
+        groups = {name: set(codes) for name, codes in group_document["groups"].items()}
+        exclusions = frozenset(group_document.get("excluded_descriptors", []))
+    return benefits, groups, exclusions
 
 
 def benefit_period(period_type: str, as_of: date, *, cardmember_since: date | None = None) -> Period:
@@ -93,12 +98,15 @@ def evaluate_all_benefits(
     portal_confirmed: Mapping[str, bool | None] | None = None,
     limit_minor: Mapping[str, int | None] | None = None,
     observed_on: Mapping[str, date] | None = None,
+    merchant_groups: Mapping[str, set[str]] | None = None,
+    excluded_descriptors: frozenset[str] | set[str] | None = None,
 ) -> list[StatusResult]:
     """Evaluate persisted facts only; this path deliberately accepts no resolver."""
     transactions = ledger.load_resolved_transactions() if hasattr(ledger, "load_resolved_transactions") else ledger
     return resolve_benefits(
         benefits, transactions, as_of, cardmember_since=cardmember_since, enrolled=enrolled,
         portal_confirmed=portal_confirmed, limit_minor=limit_minor, observed_on=observed_on,
+        merchant_groups=merchant_groups, excluded_descriptors=excluded_descriptors,
     )
 
 
@@ -109,6 +117,8 @@ def resolve_benefits(
     portal_confirmed: Mapping[str, bool | None] | None = None,
     limit_minor: Mapping[str, int | None] | None = None,
     observed_on: Mapping[str, date] | None = None,
+    merchant_groups: Mapping[str, set[str]] | None = None,
+    excluded_descriptors: frozenset[str] | set[str] | None = None,
 ) -> list[StatusResult]:
     """Evaluate every registered benefit at one as-of date, without model involvement."""
     rows = tuple(transactions)
@@ -118,6 +128,7 @@ def resolve_benefits(
         enrolled=(enrolled or {}).get(benefit.benefit_id),
         portal_confirmed=(portal_confirmed or {}).get(benefit.benefit_id),
         limit_minor=(limit_minor or {}).get(benefit.benefit_id), observed_on=observed_on,
+        merchant_groups=merchant_groups, excluded_descriptors=excluded_descriptors,
     ) for benefit in benefits]
 
 
@@ -132,8 +143,13 @@ def resolve_status(
     portal_confirmed: bool | None = None,
     observed_on: Mapping[str, date] | None = None,
     period_as_of: date | None = None,
+    merchant_groups: Mapping[str, set[str]] | None = None,
+    excluded_descriptors: frozenset[str] | set[str] | None = None,
 ) -> StatusResult:
     """Resolve status from supplied facts only. No model participates in this calculation."""
+    if benefit.missing_data_source and not benefit.merchant_group:
+        return StatusResult("deferred", ("non_observable_benefit",),
+                            (f"benefit:{benefit.benefit_id}", f"missing_source:{benefit.missing_data_source}"), 0, None, None)
     if benefit.period_type == "cardmember_year" and cardmember_since is None:
         return StatusResult("indeterminate", ("missing_cardmember_anniversary",), (f"benefit:{benefit.benefit_id}",), 0, None, as_of)
     period = benefit_period(benefit.period_type, period_as_of or as_of, cardmember_since=cardmember_since)
@@ -153,8 +169,10 @@ def resolve_status(
         if portal_confirmed is not True:
             reason = "portal_not_confirmed" if portal_confirmed is False else "missing_portal_evidence"
             return StatusResult("indeterminate", (reason,), tuple(evidence), 0, limit, period.end)
-    if benefit.benefit_id not in MERCHANTS:
+    group = benefit.merchant_group
+    if group is None:
         return StatusResult("indeterminate", ("missing_eligibility_policy",), tuple(evidence), 0, limit, period.end)
+    eligible_merchants = (merchant_groups or {}).get(group, set())
 
     eligible: list[Transaction] = []
     uncertain: list[tuple[str, str]] = []
@@ -168,9 +186,9 @@ def resolve_status(
         if observed_on and transaction.transaction_id in observed_on and observed_on[transaction.transaction_id] > as_of:
             uncertain.append(("posting_lag", transaction.transaction_id))
             continue
-        if merchant in MERCHANTS.get(benefit.benefit_id, set()):
+        if merchant in eligible_merchants:
             eligible.append(transaction)
-        elif merchant is None and transaction.descriptor not in EXCLUDED_DESCRIPTORS:
+        elif merchant is None and transaction.descriptor not in (excluded_descriptors or frozenset()):
             uncertain.append(("unresolved_merchant", transaction.transaction_id))
     evidence.extend(f"transaction:{row.transaction_id}" for row in eligible)
     evidence.extend(f"uncertain_transaction:{value}" for _, value in uncertain)
@@ -190,15 +208,6 @@ def _facts(item: Transaction | ResolvedTransaction) -> tuple[Transaction, str | 
     if isinstance(item, ResolvedTransaction):
         return item.transaction, item.canonical_merchant
     return item, None
-
-
-def _possible_match(benefit: Benefit, transaction: Transaction) -> bool:
-    # A missing model fact is only material when the MCC could satisfy this benefit.
-    expected_mcc = {
-        "amex_platinum_walmart_plus": {5968}, "amex_platinum_resy": {5812},
-        "amex_platinum_uber_one": {4121}, "amex_platinum_airline_fee": {4511},
-    }.get(benefit.benefit_id, set())
-    return transaction.mcc in expected_mcc
 
 
 def _next_month(value: date) -> date:

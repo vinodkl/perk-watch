@@ -15,6 +15,7 @@
       "enrollment_required": false,
       "portal_gated": false,
       "merchant_rule": "eligible digital-entertainment merchants",
+      "merchant_group": "digital_entertainment",
       "terms_version": "synthetic-2026-09-19.v1"
     },
     {
@@ -28,6 +29,7 @@
       "enrollment_required": true,
       "portal_gated": true,
       "merchant_rule": "Walmart+ subscription billed through enrolled account",
+      "merchant_group": "walmart_plus",
       "terms_version": "synthetic-2026-09-19.v1"
     },
     {
@@ -41,6 +43,7 @@
       "enrollment_required": false,
       "portal_gated": false,
       "merchant_rule": "eligible Resy dining charge",
+      "merchant_group": "resy",
       "terms_version": "synthetic-2026-09-19.v1"
     },
     {
@@ -54,6 +57,7 @@
       "enrollment_required": false,
       "portal_gated": true,
       "merchant_rule": "eligible prepaid hotel booking through required portal",
+      "merchant_group": "amex_hotel_portal",
       "terms_version": "synthetic-2026-09-19.v1"
     },
     {
@@ -67,6 +71,7 @@
       "enrollment_required": true,
       "portal_gated": true,
       "merchant_rule": "Uber One subscription billed to enrolled card",
+      "merchant_group": "uber_one",
       "terms_version": "synthetic-2026-09-19.v1"
     },
     {
@@ -80,6 +85,7 @@
       "enrollment_required": true,
       "portal_gated": true,
       "merchant_rule": "incidental fee charged by selected airline",
+      "merchant_group": "airline_incidental",
       "terms_version": "synthetic-2026-09-19.v1"
     },
     {
@@ -93,6 +99,7 @@
       "enrollment_required": false,
       "portal_gated": false,
       "merchant_rule": "CLEAR+ membership charge",
+      "merchant_group": "clear",
       "terms_version": "synthetic-2026-09-19.v1"
     },
     {
@@ -106,6 +113,7 @@
       "enrollment_required": false,
       "portal_gated": false,
       "merchant_rule": "eligible application fee",
+      "merchant_group": "global_entry",
       "terms_version": "synthetic-2026-09-19.v1"
     },
     {
@@ -119,6 +127,7 @@
       "enrollment_required": false,
       "portal_gated": true,
       "merchant_rule": "hotel booking through Chase Travel",
+      "merchant_group": "chase_travel_hotel",
       "terms_version": "synthetic-2026-09-19.v1"
     },
     {
@@ -132,6 +141,7 @@
       "enrollment_required": false,
       "portal_gated": false,
       "merchant_rule": "eligible application fee",
+      "merchant_group": "global_entry",
       "terms_version": "synthetic-2026-09-19.v1"
     }
   ]
