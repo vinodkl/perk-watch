@@ -132,24 +132,73 @@ class ReActRuntime:
         observations: list[dict[str, Any]] = []
         retries = 0
         for _ in range(self.max_steps):
-            try:
-                step = ModelStep.model_validate(model.next(self.question, observations))
-            except ValidationError as exc:
-                retries += 1
-                observations.append(ToolError(error_type="model_validation", message=str(exc)).model_dump(mode="json"))
-                if retries > self.max_validation_retries:
-                    raise ValueError("model output failed validation retries") from exc
-                continue
-            if step.final is not None:
+            if self._complete(observations):
                 return self._answer(observations, retries)
-            if step.call is None:
-                observations.append(ToolError(error_type="model_validation", message="step needs call or final").model_dump())
+            raw = model.next(self.question, observations)
+            try:
+                step = ModelStep.model_validate(raw)
+            except ValidationError:
                 retries += 1
-                continue
+                step = self._next_safe_step(observations)
+            if step.final is not None:
+                if self._complete(observations):
+                    return self._answer(observations, retries)
+                retries += 1
+                step = self._next_safe_step(observations)
+            if step.call is None or not self._call_is_safe(step.call, observations):
+                retries += 1
+                step = self._next_safe_step(observations)
             result, retry = self._dispatch(step.call)
             retries += retry
+            if result.get("ok") is False:
+                result = {**result, "completed_tool": step.call.tool}
             observations.append(result)
         raise ValueError("ReAct loop exceeded step limit")
+
+    @staticmethod
+    def _tool_key(row: Mapping[str, Any]) -> str | None:
+        if "completed_tool" in row:
+            return str(row["completed_tool"])
+        return next((tool for key, tool in {
+            "statuses": "get_verified_statuses", "values": "get_verified_values",
+            "deadlines": "get_verified_deadlines", "evidence": "get_verified_evidence",
+            "citations": "retrieve_official_clauses", "available": "retrieve_community_uses",
+        }.items() if key in row), None)
+
+    def _complete(self, observations: list[dict[str, Any]]) -> bool:
+        return {self._tool_key(row) for row in observations} >= {
+            "get_verified_statuses", "get_verified_values", "get_verified_deadlines",
+            "get_verified_evidence", "retrieve_official_clauses", "retrieve_community_uses",
+        }
+
+    def _next_safe_step(self, observations: list[dict[str, Any]]) -> ModelStep:
+        done = {self._tool_key(row) for row in observations}
+        tool = next(tool for tool in (
+            "get_verified_statuses", "get_verified_values", "get_verified_deadlines",
+            "get_verified_evidence", "retrieve_official_clauses", "retrieve_community_uses",
+        ) if tool not in done)
+        ids = [row["benefit_id"] for row in next((row for row in observations if "statuses" in row), {"statuses": []})["statuses"]]
+        arguments = {"query": self.question, "benefit_ids": ids} if tool == "retrieve_official_clauses" else {"benefit_ids": ids} if tool == "retrieve_community_uses" else {}
+        return ModelStep(call=ToolCall(tool=tool, arguments=arguments))
+
+    def _call_is_safe(self, call: ToolCall, observations: list[dict[str, Any]]) -> bool:
+        if call.tool not in {
+            "get_verified_statuses", "get_verified_values", "get_verified_deadlines",
+            "get_verified_evidence", "retrieve_official_clauses", "retrieve_community_uses",
+        }:
+            return False
+        if call.tool in {self._tool_key(row) for row in observations}:
+            return False
+        schemas = {
+            "get_verified_statuses": StatusArgs, "get_verified_values": ValuesArgs,
+            "get_verified_deadlines": DeadlinesArgs, "get_verified_evidence": EvidenceArgs,
+            "retrieve_official_clauses": OfficialArgs, "retrieve_community_uses": CommunityArgs,
+        }
+        try:
+            schemas[call.tool].model_validate(call.arguments)
+        except ValidationError:
+            return False
+        return True
 
     def _dispatch(self, call: ToolCall) -> tuple[dict[str, Any], int]:
         schemas: dict[str, type[BaseModel]] = {

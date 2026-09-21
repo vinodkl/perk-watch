@@ -18,6 +18,11 @@ class RetryModel:
         return {"final": "done"}
 
 
+class MalformedForeverModel:
+    def next(self, question, observations):
+        return {"call": {"tool": "not-a-tool", "arguments": []}}
+
+
 class FakeOpenAIResponse:
     class Choice:
         class Message:
@@ -45,10 +50,24 @@ class ReactSmokeTest(unittest.TestCase):
             evaluate=lambda as_of: facts, retrieve_official=retrieve_official,
         )
 
-    def test_typed_loop_retries_and_keeps_tool_error_as_data(self):
-        answer = self.runtime().run(RetryModel())
-        self.assertEqual(answer.validation_retries, 1)
+    def test_typed_loop_retries_and_advances_past_duplicate_and_premature_steps(self):
+        answer = self.runtime(lambda *args: [{"clause_id": "c", "citation": "guide#c", "clause_text": "terms", "terms_version": "t1"}]).run(RetryModel())
+        self.assertGreaterEqual(answer.validation_retries, 1)
         self.assertEqual(answer.statuses[0].status, "unused")
+        self.assertTrue(answer.values)
+        self.assertTrue(answer.deadlines)
+
+    def test_repeated_malformed_model_recovers_with_bounded_budget(self):
+        answer = self.runtime(lambda *args: [{"clause_id": "c", "citation": "guide#c", "clause_text": "terms", "terms_version": "t1"}]).run(MalformedForeverModel())
+        self.assertTrue(answer.statuses and answer.values and answer.deadlines)
+
+    def test_repeated_malformed_model_exhausts_explicitly_when_budget_is_too_small(self):
+        with self.assertRaisesRegex(ValueError, "exceeded step limit"):
+            ReActRuntime(
+                question="q", as_of=date(2026, 9, 20),
+                evaluate=lambda as_of: [StatusResult("unused", (), ("benefit:x",), 0, 1, date(2026, 9, 30))],
+                retrieve_official=None, max_steps=5,
+            ).run(MalformedForeverModel())
 
     def test_openai_boundary_normalizes_list_for_community_tool(self):
         step = OpenAIModel(client=FakeOpenAIClient()).next("Which benefits are unused?", [])
