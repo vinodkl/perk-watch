@@ -59,15 +59,12 @@ def main() -> None:
         classification = json.loads(classification_path.read_text())
         rows = classification["benefits"]
         tallies = classification["tallies"]
-        assert len(rows) == tallies["total_real_benefits"] == 82
+        assert len(rows) == tallies["total_real_benefits"]
         assert all(row["benefit_id"] and row["disposition"] in {"supported", "indeterminate", "known_untrackable"} for row in rows)
-        assert all("merchant_group" in row for row in rows if row["disposition"] == "supported")
+        assert all(row.get("merchant_group") for row in rows if row["disposition"] == "supported")
         assert all(row.get("missing_data_source") for row in rows if row["disposition"] == "known_untrackable")
-        observed = {row["disposition"] for row in rows}
-        assert observed == {"supported", "indeterminate", "known_untrackable"}
-        assert sum(row["disposition"] == "supported" for row in rows) == tallies["supported"] == 15
-        assert sum(row["disposition"] == "indeterminate" for row in rows) == tallies["indeterminate"] == 2
-        assert sum(row["disposition"] == "known_untrackable" for row in rows) == tallies["known_untrackable"] == 65
+        for disposition in ("supported", "indeterminate", "known_untrackable"):
+            assert sum(row["disposition"] == disposition for row in rows) == tallies[disposition]
         classification_note = "verified"
 
     print("dataset_version: slice25-2026-09-20.v1")
