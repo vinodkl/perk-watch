@@ -2,7 +2,7 @@ from datetime import date
 import unittest
 
 from perk_watch.benefits import StatusResult
-from perk_watch.react import ReActRuntime, ScriptedModel
+from perk_watch.react import OpenAIModel, ReActRuntime, ScriptedModel
 
 
 class RetryModel:
@@ -18,6 +18,25 @@ class RetryModel:
         return {"final": "done"}
 
 
+class FakeOpenAIResponse:
+    class Choice:
+        class Message:
+            content = '{"call":{"tool":"retrieve_community_uses","arguments":["benefit-a","benefit-b"]}}'
+        message = Message()
+    choices = [Choice()]
+
+
+class FakeOpenAICompletions:
+    def create(self, **kwargs):
+        return FakeOpenAIResponse()
+
+
+class FakeOpenAIClient:
+    class Chat:
+        completions = FakeOpenAICompletions()
+    chat = Chat()
+
+
 class ReactSmokeTest(unittest.TestCase):
     def runtime(self, retrieve_official=None):
         facts = [StatusResult("unused", ("no_eligible_transactions",), ("benefit:hotel", "period:x"), 0, 2500, date(2026, 9, 30))]
@@ -30,6 +49,10 @@ class ReactSmokeTest(unittest.TestCase):
         answer = self.runtime().run(RetryModel())
         self.assertEqual(answer.validation_retries, 1)
         self.assertEqual(answer.statuses[0].status, "unused")
+
+    def test_openai_boundary_normalizes_list_for_community_tool(self):
+        step = OpenAIModel(client=FakeOpenAIClient()).next("Which benefits are unused?", [])
+        self.assertEqual(step["call"]["arguments"], {"benefit_ids": ["benefit-a", "benefit-b"]})
 
     def test_demo_connects_official_and_explicit_community_unavailable(self):
         def official(query, question, benefit_ids, as_of):

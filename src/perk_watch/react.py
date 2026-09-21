@@ -254,9 +254,15 @@ class OpenAIModel:
         )
         result = json.loads(response.choices[0].message.content)
         call = result.get("call") if isinstance(result, dict) else None
-        if isinstance(call, dict) and "arguments" not in call:
-            arguments = {key: call.pop(key) for key in ("query", "benefit_ids") if key in call}
-            call["arguments"] = arguments
+        if isinstance(call, dict):
+            tool = call.get("tool")
+            arguments = call.get("arguments")
+            if isinstance(arguments, list) and tool in {"retrieve_official_clauses", "retrieve_community_uses"}:
+                call["arguments"] = {"benefit_ids": arguments}
+                if tool == "retrieve_official_clauses":
+                    call["arguments"]["query"] = question
+            elif "arguments" not in call:
+                call["arguments"] = {key: call.pop(key) for key in ("query", "benefit_ids") if key in call}
         seen_tools = {"get_verified_statuses" if "statuses" in row else
                       "get_verified_values" if "values" in row else
                       "get_verified_deadlines" if "deadlines" in row else
@@ -266,7 +272,7 @@ class OpenAIModel:
                       for row in observations}
         seen_tools.discard(None)
         selected = call.get("tool") if isinstance(call, dict) else None
-        if selected in seen_tools or selected == "retrieve_community_uses" or (result.get("final") is not None and not required <= {key for row in observations for key in row if key in required}):
+        if selected in seen_tools or (result.get("final") is not None and not required <= {key for row in observations for key in row if key in required}):
             ids = [row["benefit_id"] for row in next((row for row in observations if "statuses" in row), {"statuses": []})["statuses"]]
             missing = next((tool for tool in ("get_verified_statuses", "get_verified_values", "get_verified_deadlines", "get_verified_evidence", "retrieve_official_clauses", "retrieve_community_uses") if tool not in seen_tools), None)
             if missing:
