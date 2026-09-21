@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""VKU-27 local assumption smoke test (assumption-based, not account-accurate).
+"""VKU-27 local real-data integration (unlabelled, not an accuracy benchmark).
 
 This harness is deliberately distinct from ``scripts/validate_local.py``: it
-applies an explicitly recorded assumption-based benefit mapping to the real
-local guides, re-runs preparation so the SQLite rule registry ingests the
-mapping, then drives one end-to-end status/value/deadline/citation question and
-one multi-benefit planner pass using only the local registry, ledger, and
+applies an explicitly recorded owner-directed mapping and account-state
+assumptions to the staged real guides, transactions, and public community
+inputs, re-runs preparation so the SQLite rule registry ingests the mapping,
+then drives one end-to-end status/value/deadline/citation question and one
+multi-benefit planner pass using only the local registry, ledger, and
 official-clause index.
 
 Everything it writes is local-only under ``PERKWATCH_DATA_DIR``. It never
-contacts an issuer, Reddit, or any embedding API, and it never claims real
-account accuracy.
+contacts an issuer, Reddit, or any embedding API, and it does not claim
+human-labelled account accuracy.
 """
 from __future__ import annotations
 
@@ -25,6 +26,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from perk_watch.benefit_mapping import build_draft_mapping, load_benefit_mapping, registry_dir
 from perk_watch.benefits import evaluate_persisted_benefits
+from perk_watch.community_rag import load_served_ideas, serve_community
 from perk_watch.planning import BenefitFacts, CandidateAction, plan_benefits
 from perk_watch.preparation import prepare_data
 from perk_watch.raw_data import data_root
@@ -34,7 +36,7 @@ from perk_watch.transactions import SQLiteLedger
 
 REVIEWED_FILENAME = "benefit-classification.json"
 PRIOR_FILENAME = "benefit-classification.prior.json"
-ASSUMPTION_STATUS = "reviewed_assumption_smoke"
+ASSUMPTION_STATUS = "reviewed_local_real_data_integration"
 
 AS_OF = date(2026, 9, 20)
 QUESTION = (
@@ -42,8 +44,8 @@ QUESTION = (
     "Amex Platinum benefit, and which governing clause supports that?"
 )
 
-# Explicit, assumption-based dispositions for every Amex dollar-capped benefit.
-# period_amount_minor is dollars*100; period_type is an assumption recorded here.
+# Explicit owner-directed mapping dispositions for every Amex dollar-capped benefit.
+# period_amount_minor is dollars*100; period_type is an owner-directed demo assumption recorded here.
 SUPPORTED: dict[str, dict] = {
     "120-uber-one-credit": {
         "period_type": "calendar_year", "period_amount_minor": 12000,
@@ -199,15 +201,22 @@ def build_assumption_mapping(clauses: list[dict], terms_version: str) -> dict:
         rows.append(updated)
 
     assumptions = {
-        "mode": "local assumption smoke test",
-        "not_account_accurate": True,
+        "mode": "local real-data integration",
+        "real_inputs": {
+            "official_guides": "staged real issuer guides; authoritative at recorded version/fetch date",
+            "transactions": "staged real local transaction exports; evidence for this integration",
+            "community": "staged real public Reddit inputs; non-authoritative",
+        },
+        "not_human_labelled_accuracy": True,
         "treat_every_mapped_benefit_as_available": True,
         "latest_staged_guide_is_current": True,
+        "availability": "owner-directed assumption: every mapped benefit is available",
+        "current_selection": "owner-directed assumption: latest staged guide version is current",
         "enrollment": (
-            "benefits with enrollment_required=True are assumed enrolled "
-            "(no portal/login verification was performed)"
+            "owner-directed account-state assumption: benefits with enrollment_required=True "
+            "are assumed enrolled (no portal/login verification was performed)"
         ),
-        "portal": "assumed portal_gated=False for all mapped benefits",
+        "portal": "owner-directed account-state assumption: portal_gated=False for mapped benefits"},{
         "merchant_resolution": (
             "absent: every local merchant decision is indeterminate and no "
             "merchant-group table was supplied, so merchant-group eligibility "
@@ -240,7 +249,7 @@ def build_assumption_mapping(clauses: list[dict], terms_version: str) -> dict:
         "reviewed": True,
         "status": ASSUMPTION_STATUS,
         "terms_version": terms_version,
-        "generated_at": f"assumption-smoke:{terms_version}",
+        "generated_at": f"local-real-data-integration:{terms_version}",
         "benefits": rows,
         "tallies": {
             "total_real_benefits": len(rows),
@@ -395,8 +404,9 @@ def main() -> None:
     reviewed_path = directory / REVIEWED_FILENAME
     prior_path = directory / PRIOR_FILENAME
 
-    # Build and write the assumption-based reviewed mapping, backing up the
-    # previous reviewed file once (the prior file is local-only).
+    # Build and write the reviewed local mapping, backing up the previous
+    # reviewed file once (the prior file is local-only). Owner-directed
+    # availability/account-state assumptions are embedded and reported.
     mapping_doc = build_assumption_mapping(clauses, terms_version)
     if reviewed_path.exists():
         prior_doc = _read_json(reviewed_path)
@@ -410,7 +420,7 @@ def main() -> None:
     mapping = load_benefit_mapping(root, require_reviewed=True)
 
     # Re-run preparation so _prepare_rules sees the new fingerprint and re-ingests
-    # every clause against the assumption mapping.
+    # every clause against the local real-data mapping.
     prepare_report = prepare_data(root=root)
     rule_result = prepare_report.get("rules", {})
 
@@ -422,9 +432,20 @@ def main() -> None:
     decisions = registry.decisions()
     index_metadata = _read_json(root / "prepared" / "indexes" / "official" / "metadata.json")["clauses"]
 
-    # Evaluate using only recorded assumptions. No merchant-group table is
-    # supplied, so every supported benefit with an in-period transaction is
-    # indeterminate ("unresolved_merchant").
+    # Retrieve only prepared, reviewed community ideas. These real public inputs
+    # remain non-authoritative and cannot alter deterministic benefit facts.
+    community_paths = sorted((root / "prepared" / "community").glob("*/current.json"))
+    community_ideas = load_served_ideas(community_paths)
+    community_retrieval = serve_community(
+        community_ideas,
+        benefit_ids=[row["benefit_id"] for row in mapping.rows],
+        terms_version=terms_version,
+    )
+
+    # Evaluate the real transaction evidence using only recorded owner-directed
+    # account-state assumptions. No merchant-group table is supplied, so every
+    # supported benefit with an in-period transaction is indeterminate
+    # ("unresolved_merchant").
     ledger = SQLiteLedger(root)
     enrolled = {
         row["benefit_id"]: True
@@ -445,7 +466,7 @@ def main() -> None:
     )
     answer = runtime.run(ScriptedModel())
 
-    # Multi-benefit planner over the same verified facts. Indeterminate facts
+    # Multi-benefit planner over the same locally evaluated facts. Indeterminate facts
     # carry no verified remaining value/deadline, so the hard check drops them.
     facts = []
     for result in evaluate(AS_OF):
@@ -484,12 +505,12 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     assumptions_doc = mapping_doc["assumptions"]
-    assumptions_path = output_dir / "vku-27-assumptions.json"
+    assumptions_path = output_dir / "vku-27-account-state-assumptions.json"
     assumptions_path.write_text(json.dumps(assumptions_doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     manifest = {
-        "dataset": "local-assumption-smoke-vku-27",
-        "dataset_version": "local-vku27-assumption-" + _sha256_text(
+        "dataset": "local-real-data-integration-vku-27",
+        "dataset_version": "local-vku27-real-data-" + _sha256_text(
             json.dumps({"terms_version": terms_version, "mapping_fingerprint": mapping.fingerprint},
                        sort_keys=True)
         )[:16],
@@ -498,7 +519,7 @@ def main() -> None:
         "as_of": AS_OF.isoformat(),
         "guide_hashes": guide_hashes,
         "mapping_fingerprint": mapping.fingerprint,
-        "assumptions_fingerprint": _sha256_text(json.dumps(assumptions_doc, sort_keys=True)),
+        "account_state_assumptions_fingerprint": _sha256_text(json.dumps(assumptions_doc, sort_keys=True)),
         "coverage": {
             "clause_count": len(clauses),
             "mapping_row_count": len(mapping.rows),
@@ -534,9 +555,15 @@ def main() -> None:
         },
         "evaluation": {
             "as_of": AS_OF.isoformat(),
+            "real_inputs": ["official_guides", "transactions", "public_community"],
             "question": QUESTION,
             "per_benefit": status_rows,
             "answer": answer_dict,
+        },
+        "community_retrieval": {
+            "available": community_retrieval["available"],
+            "idea_count": len(community_retrieval["ideas"]),
+            "labels": community_retrieval["labels"],
         },
         "planner": {
             "fact_count": len(facts),
@@ -552,18 +579,24 @@ def main() -> None:
         },
         "observed_failures": [],
         "known_coverage_gaps": [
-            "No merchant resolution exists locally (563/563 descriptors indeterminate), so every "
-            "supported benefit with an in-period transaction is indeterminate (unresolved_merchant); "
-            "no concrete status/value/deadline claim is made.",
+            "This integrates real staged guides, real local transaction evidence, and real public "
+            "community inputs; community evidence is non-authoritative and cannot change status, "
+            "amount, remaining value, or deadline.",
+            "Real transaction evidence has no merchant resolution locally (563/563 descriptors "
+            "indeterminate), so every supported benefit with an in-period transaction is "
+            "indeterminate (unresolved_merchant); no concrete status/value/deadline claim is made.",
+            "The prepared community corpus is real and non-authoritative; its short benefit IDs do "
+            "not match the mapped IDs, so no community idea is attached to a mapped benefit.",
             "The chase guide is unstructured and remains one indeterminate 'chunk' slug.",
             "Non-dollar Amex benefits are known-untrackable and produce no active rules.",
-            "Enrollment/portal state is assumed, not verified against any issuer portal.",
-            "No human-labelled local cases exist, so accuracy/false-unused/precision/recall are null.",
+            "Availability/current-selection and enrollment/portal account state are owner-directed "
+            "assumptions, not issuer-portal observations.",
+            "No human-labelled local cases exist, so accuracy/false-unused/precision/recall are unavailable (null).",
         ],
     }
 
-    report_path = output_dir / "vku-27-local-assumption-smoke-report.json"
-    manifest_path = output_dir / "vku-27-local-assumption-smoke-manifest.json"
+    report_path = output_dir / "vku-27-local-real-data-integration-report.json"
+    manifest_path = output_dir / "vku-27-local-real-data-integration-manifest.json"
     manifest["outputs"]["report"] = report_path.relative_to(root).as_posix()
     manifest["outputs"]["manifest"] = manifest_path.relative_to(root).as_posix()
     report["dataset"] = manifest
