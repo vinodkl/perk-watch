@@ -10,6 +10,8 @@ from typing import Any, Iterable, Mapping
 
 from .raw_data import data_root, initialize, source_records
 
+EXTRACTION_VERSION = 3
+
 
 def prepare_benefits(*, root: str | Path | None = None, effective_from: str | None = None) -> dict[str, Any]:
     """Hash raw guides, diff clause chunks, and write the prepared benefit model."""
@@ -26,7 +28,9 @@ def prepare_benefits(*, root: str | Path | None = None, effective_from: str | No
         digest = _sha256(raw_path)
         old_source = previous.get("sources", {}).get(source_id, {})
         old_clauses = [row for row in previous.get("clauses", []) if row.get("source_id") == source_id]
-        if old_source.get("content_sha256") == digest and old_clauses:
+        if (old_source.get("content_sha256") == digest
+                and old_source.get("extraction_version") == EXTRACTION_VERSION
+                and old_clauses):
             source_version = old_source["terms_version"]
             new_clauses = old_clauses
         else:
@@ -43,6 +47,7 @@ def prepare_benefits(*, root: str | Path | None = None, effective_from: str | No
             "terms_version": source_version,
             "effective_from": manifest.get("effective_from", effective_from),
             "clause_count": len(new_clauses),
+            "extraction_version": EXTRACTION_VERSION,
             "clause_ids": [row["clause_id"] for row in new_clauses],
         }
 
@@ -126,7 +131,11 @@ def _extract(path: Path, source_id: str, manifest: Mapping[str, Any], terms_vers
             for index, text in enumerate(_paragraphs(str(item.get("text", ""))), 1):
                 chunks.append((f"{_slug(title)}-{index:03d}", text, benefit_id))
     else:
-        chunks = [(f"chunk-{index:03d}", text, None) for index, text in enumerate(_paragraphs(path.read_text(encoding="utf-8")), 1)]
+        text = path.read_text(encoding="utf-8")
+        chunks = _line_benefits(text, source_id) if source_id.startswith("chase_sapphire_preferred:") else [
+            (f"chunk-{index:03d}", paragraph, None)
+            for index, paragraph in enumerate(_paragraphs(text), 1)
+        ]
     effective = manifest.get("effective_from", default_effective)
     digest = _sha256(path)
     return [{
@@ -134,6 +143,38 @@ def _extract(path: Path, source_id: str, manifest: Mapping[str, Any], terms_vers
         "terms_version": terms_version, "effective_from": effective, "effective_to": None,
         "text": text, "source_ref": source_id, "source_sha256": digest,
     } for key, text, benefit_id in chunks]
+
+
+def _line_benefits(text: str, source_id: str) -> list[tuple[str, str, str | None]]:
+    """Split a captured card-benefit page into title-level clauses."""
+    ignored = {
+        "Featured benefits", "Maximize your credits", "Enjoy membership perks",
+        "Get more with your card", "Be protected and insured", "Travel", "Dining",
+        "Rewards", "Shopping", "Protection", "Service", "All benefits", "Track usage",
+        "Select a filter", "Transfer points",
+    }
+    rows = []
+    started = False
+    for raw in text.splitlines():
+        line = re.sub(r"\s+", " ", raw).strip()
+        if line == "Featured benefits":
+            started = True
+            continue
+        if not started or not line or line in ignored:
+            continue
+        if line in {"Activated", "Activation required"} or line.startswith(("For details", "*For details")):
+            continue
+        if re.fullmatch(r"\$?\d[\d,.]*(?:x)?", line) or line.startswith(("Max value", "Annual value", "Every ")):
+            continue
+        if line.startswith("Please see your Rewards"):
+            break
+        if line.startswith(("Sign out", "Skip ", "Accounts", "Pay & transfer", "Plan & track",
+                            "Investments", "Benefits & travel", "Security & privacy", "Explore products",
+                            "Sapphire Preferred")):
+            continue
+        slug = _slug(line.rstrip("*"))
+        rows.append((f"{slug}-001", line, None))
+    return rows
 
 
 def _find_invalidations(root: Path, source_ids: set[str], benefit_ids: set[str], old_versions: set[str | None]) -> dict[str, list[dict[str, str]]]:

@@ -194,10 +194,18 @@ def build_assumption_mapping(clauses: list[dict], terms_version: str) -> dict:
                 "portal_gated": None,
                 "missing_data_source": _MISSING_SOURCES[UNTRACKABLE[slug]],
             })
-        elif slug == CHASE_UNRESOLVED:
-            updated = dict(row)  # stays indeterminate
         else:
-            raise SystemExit(f"unexpected mapping slug without a disposition: {slug}")
+            updated = dict(row)
+            updated.update({
+                "disposition": "indeterminate",
+                "period_type": None,
+                "period_amount_minor": None,
+                "merchant_group": None,
+                "eligibility": {},
+                "enrollment_required": None,
+                "portal_gated": None,
+                "missing_data_source": "benefit mapping review required",
+            })
         rows.append(updated)
 
     assumptions = {
@@ -216,11 +224,12 @@ def build_assumption_mapping(clauses: list[dict], terms_version: str) -> dict:
             "owner-directed account-state assumption: benefits with enrollment_required=True "
             "are assumed enrolled (no portal/login verification was performed)"
         ),
-        "portal": "owner-directed account-state assumption: portal_gated=False for mapped benefits"},{
+        "portal": "owner-directed account-state assumption: portal_gated=False for mapped benefits",
         "merchant_resolution": (
-            "absent: every local merchant decision is indeterminate and no "
-            "merchant-group table was supplied, so merchant-group eligibility "
-            "cannot be observed"
+            "OpenAI-backed local pass may resolve sanitized descriptors to one of "
+            "the active merchant groups; low-confidence or ambiguous descriptors "
+            "remain indeterminate. Amounts, dates, identifiers, and transaction "
+            "rows are never sent."
         ),
         "period_amounts": {
             slug: {
@@ -238,9 +247,8 @@ def build_assumption_mapping(clauses: list[dict], terms_version: str) -> dict:
             for name in sorted(set(UNTRACKABLE.values()))
         },
         "chase_unresolved": (
-            "chase guide was captured as unstructured text and collapses to one "
-            "'chunk' slug; no per-benefit rules can be produced, so it stays "
-            "indeterminate"
+            "Chase guide clauses are now structured individually from the local "
+            "captured text; benefits without a reviewed mapping stay indeterminate."
         ),
         "metrics_unavailable": ["accuracy", "false_unused", "precision", "recall"],
     }
@@ -429,6 +437,12 @@ def main() -> None:
     registry = SQLiteRuleRegistry(path=registry_path)
     active_benefits = registry.active_benefits()
     active_benefit_ids = sorted({benefit.benefit_id for benefit in active_benefits})
+    active_benefits_by_card = {}
+    for benefit in active_benefits:
+        active_benefits_by_card.setdefault(benefit.card, set()).add(benefit.benefit_id)
+    active_benefits_by_card = {
+        card: sorted(benefit_ids) for card, benefit_ids in sorted(active_benefits_by_card.items())
+    }
     decisions = registry.decisions()
     index_metadata = _read_json(root / "prepared" / "indexes" / "official" / "metadata.json")["clauses"]
 
@@ -447,6 +461,12 @@ def main() -> None:
     # supported benefit with an in-period transaction is indeterminate
     # ("unresolved_merchant").
     ledger = SQLiteLedger(root)
+    merchant_decisions = ledger.decisions()
+    merchant_resolution_counts = {
+        "total": len(merchant_decisions),
+        "resolved": sum(row.resolution_status == "resolved" for row in merchant_decisions),
+        "indeterminate": sum(row.resolution_status == "indeterminate" for row in merchant_decisions),
+    }
     enrolled = {
         row["benefit_id"]: True
         for row in mapping.rows
@@ -454,9 +474,16 @@ def main() -> None:
     }
     portal_confirmed: dict[str, bool] = {}
 
+    merchant_groups = {
+        row["merchant_group"]: {row["merchant_group"]}
+        for row in mapping.rows
+        if row.get("disposition") == "supported" and row.get("merchant_group")
+    }
+
     def evaluate(as_of):
         return dedupe(evaluate_persisted_benefits(
             registry_path, ledger, as_of, enrolled=enrolled, portal_confirmed=portal_confirmed,
+            merchant_groups=merchant_groups,
         ))
 
     retrieve_official = build_offline_retriever(mapping, index_metadata, terms_version)
@@ -484,6 +511,10 @@ def main() -> None:
     )
 
     status_rows = [_status_dict(result) for result in evaluate(AS_OF)]
+    status_counts = {
+        status: sum(row["status"] == status for row in status_rows)
+        for status in sorted({row["status"] for row in status_rows})
+    }
     for row in status_rows:
         row["disposition"] = "supported"
     unresolved = [
@@ -527,7 +558,13 @@ def main() -> None:
             "active_rule_count": len(active_benefits),
             "distinct_active_benefit_count": len(active_benefit_ids),
             "active_benefit_ids": active_benefit_ids,
+            "active_benefits_by_card": active_benefits_by_card,
+            "structured_clause_count_by_card": {
+                card: sum(1 for clause in clauses if clause["source_id"].startswith(card + ":"))
+                for card in sorted({clause["source_id"].split(":", 1)[0] for clause in clauses})
+            },
             "registry_decision_count": len(decisions),
+            "merchant_decisions": merchant_resolution_counts,
         },
         "outputs": {
             "assumptions": assumptions_path.relative_to(root).as_posix(),
@@ -555,11 +592,14 @@ def main() -> None:
         },
         "evaluation": {
             "as_of": AS_OF.isoformat(),
+            "status_counts": status_counts,
             "real_inputs": ["official_guides", "transactions", "public_community"],
             "question": QUESTION,
             "per_benefit": status_rows,
             "answer": answer_dict,
         },
+        "merchant_resolution": merchant_resolution_counts,
+        "active_benefits_by_card": active_benefits_by_card,
         "community_retrieval": {
             "available": community_retrieval["available"],
             "idea_count": len(community_retrieval["ideas"]),
@@ -567,6 +607,8 @@ def main() -> None:
         },
         "planner": {
             "fact_count": len(facts),
+            "planned_count": len(plan.actions),
+            "dropped_count": len(plan.dropped),
             "planned_actions": plan.model_dump(mode="json")["actions"],
             "dropped_actions": plan.model_dump(mode="json")["dropped"],
         },
@@ -582,12 +624,13 @@ def main() -> None:
             "This integrates real staged guides, real local transaction evidence, and real public "
             "community inputs; community evidence is non-authoritative and cannot change status, "
             "amount, remaining value, or deadline.",
-            "Real transaction evidence has no merchant resolution locally (563/563 descriptors "
-            "indeterminate), so every supported benefit with an in-period transaction is "
-            "indeterminate (unresolved_merchant); no concrete status/value/deadline claim is made.",
+            f"Real transaction evidence has {merchant_resolution_counts['resolved']} resolved and "
+            f"{merchant_resolution_counts['indeterminate']} indeterminate merchant decisions; "
+            "remaining ambiguity stays indeterminate.",
             "The prepared community corpus is real and non-authoritative; its short benefit IDs do "
             "not match the mapped IDs, so no community idea is attached to a mapped benefit.",
-            "The chase guide is unstructured and remains one indeterminate 'chunk' slug.",
+            "Chase guide benefits are individually structured from local text; unmapped "
+            "benefits remain indeterminate rather than being invented.",
             "Non-dollar Amex benefits are known-untrackable and produce no active rules.",
             "Availability/current-selection and enrollment/portal account state are owner-directed "
             "assumptions, not issuer-portal observations.",

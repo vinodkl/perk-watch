@@ -1,5 +1,10 @@
 # VKU-27 local real-data integration
 
+`scripts/resolve_local_merchants.py` sends only sanitized merchant descriptor
+text plus the fixed active-group vocabulary to OpenAI, then persists model,
+version, confidence, and audit metadata only in the local ledger. It never sends
+amounts, dates, identifiers, evidence, filenames, or transaction rows.
+
 `scripts/local_real_data_integration.py` runs the staged real local dataset
 separately from the synthetic frozen benchmark. It applies the reviewed local
 benefit mappings, reruns preparation, and exercises the deterministic
@@ -32,8 +37,9 @@ directory; guides, transactions, SQLite stores, and reports are never committed.
 This is an integration result over real staged inputs, not a human-labelled
 accuracy benchmark. Unresolved rule fields remain indeterminate. Missing local
 merchant resolution can make transaction-backed status/value/deadline results
-indeterminate, and unstructured guide clauses remain unresolved rather than
-invented. Accuracy, false-unused, precision, and recall are unavailable
+indeterminate, and genuinely ambiguous descriptors remain unresolved rather
+than invented. The captured Chase guide is structured into individual local
+clauses without fetching or login. Accuracy, false-unused, precision, and recall are unavailable
 (`null`) because no human ground truth was collected. Synthetic benchmark
 counts and this integration's counts are never blended.
 
