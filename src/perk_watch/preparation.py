@@ -8,6 +8,7 @@ from typing import Any
 
 from .community import prepare_community
 from .benefit_preparation import prepare_benefits
+from .benefit_mapping import annotate_clauses, load_benefit_mapping
 from .raw_data import data_root, initialize, source_records
 from .transactions import SQLiteLedger, TransactionSource
 from .rule_registry import SQLiteRuleRegistry
@@ -49,10 +50,20 @@ def _prepare_rules(root: Path, benefit_report: dict[str, Any]) -> dict[str, int]
     changed.update(row["clause_id"] for row in diff.get("added", []))
     changed.update(row["clause_id"] for row in diff.get("removed", []))
     changed.update(row["after"]["clause_id"] for row in diff.get("changed", []))
-    result = SQLiteRuleRegistry(path=registry_path).ingest(
-        clauses, changed_clause_ids=None if not registry_exists else changed
-    )
+
+    mapping = load_benefit_mapping(root, require_reviewed=True)
     registry = SQLiteRuleRegistry(path=registry_path)
+    if registry.applied_mapping_fingerprint() != mapping.fingerprint:
+        # The reviewed mapping (or its absence) changed: re-decide every clause.
+        registry.clear_decisions_for({row["clause_id"] for row in clauses})
+        registry.set_applied_mapping_fingerprint(mapping.fingerprint)
+        changed_clause_ids = None
+    else:
+        changed_clause_ids = None if not registry_exists else changed
+
+    result = registry.ingest(
+        annotate_clauses(clauses, mapping), changed_clause_ids=changed_clause_ids
+    )
     registry.remove_missing({row["clause_id"] for row in clauses})
     return result
 

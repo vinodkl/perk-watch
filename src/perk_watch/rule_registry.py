@@ -64,6 +64,9 @@ class SQLiteRuleRegistry:
                     proposal_json TEXT NOT NULL, clause_json TEXT NOT NULL,
                     PRIMARY KEY (clause_id, terms_version)
                 );
+                CREATE TABLE IF NOT EXISTS meta (
+                    key TEXT PRIMARY KEY, value TEXT NOT NULL
+                );
             """)
 
     def ingest(
@@ -121,6 +124,47 @@ class SQLiteRuleRegistry:
                     db.execute("DELETE FROM active_rules WHERE benefit_id=?", (clause.get("benefit_id"),))
         return {"accepted": accepted, "rejected": rejected, "skipped": skipped}
 
+    def active_rule_provenance(self) -> list[dict[str, Any]]:
+        """Return each active rule joined to its ``supported`` ingestion decision."""
+        with self._connect() as db:
+            rows = db.execute("""
+                SELECT a.clause_id, a.benefit_id, a.card, a.source_id, a.terms_version,
+                       a.effective_from, a.effective_to, a.period_type, a.period_amount_minor,
+                       a.eligibility_json, a.enrollment_required, a.portal_gated,
+                       d.outcome AS decision_outcome, d.reason AS decision_reason,
+                       d.source_id AS decision_source_id, d.benefit_id AS decision_benefit_id,
+                       d.proposal_json AS decision_proposal_json
+                FROM active_rules a
+                JOIN rule_decisions d ON d.clause_id = a.clause_id AND d.terms_version = a.terms_version
+                WHERE d.outcome = 'supported'
+                ORDER BY a.benefit_id, a.clause_id
+            """).fetchall()
+        return [dict(row) for row in rows]
+
+    def applied_mapping_fingerprint(self) -> str:
+        with self._connect() as db:
+            row = db.execute("SELECT value FROM meta WHERE key='mapping_fingerprint'").fetchone()
+        return str(row["value"]) if row else ""
+
+    def set_applied_mapping_fingerprint(self, value: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                "INSERT INTO meta (key, value) VALUES ('mapping_fingerprint', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                (value,),
+            )
+
+    def clear_decisions_for(self, clause_ids: set[str]) -> None:
+        """Delete decisions (and active rules) for clauses before re-deciding them."""
+        with self._connect() as db:
+            if clause_ids:
+                marks = ",".join("?" for _ in clause_ids)
+                db.execute(f"DELETE FROM rule_decisions WHERE clause_id IN ({marks})", tuple(clause_ids))
+                db.execute(f"DELETE FROM active_rules WHERE clause_id IN ({marks})", tuple(clause_ids))
+            else:
+                db.execute("DELETE FROM rule_decisions")
+                db.execute("DELETE FROM active_rules")
+
     def remove_missing(self, clause_ids: set[str]) -> None:
         with self._connect() as db:
             if clause_ids:
@@ -162,14 +206,19 @@ def extract_rule(clause: Mapping[str, Any]) -> dict[str, Any]:
 
 def verify_rule(clause: Mapping[str, Any], proposal: Mapping[str, Any]) -> VerificationDecision:
     """Verify only clause and proposal, never extractor reasoning or hidden context."""
+    if not str(proposal.get("benefit_id") or "").strip():
+        return VerificationDecision("partial_support", "clause is not mapped to a benefit")
     required = ("benefit_id", "period_type", "period_amount_minor", "eligibility")
     if any(key not in proposal for key in required) or not proposal.get("benefit_id") or not proposal.get("period_type"):
         return VerificationDecision("partial_support", "proposal is missing structured rule fields")
     for key in ("benefit_id", "period_type", "period_amount_minor"):
         if key in clause and clause[key] is not None and proposal.get(key) != clause[key]:
             return VerificationDecision("disagreement", f"proposal disagrees on {key}")
-    if not isinstance(proposal["eligibility"], Mapping):
+    eligibility = proposal["eligibility"]
+    if not isinstance(eligibility, Mapping):
         return VerificationDecision("partial_support", "eligibility is not structured")
+    if not str(eligibility.get("merchant_group") or "").strip():
+        return VerificationDecision("partial_support", "eligibility is missing a merchant group")
     return VerificationDecision("supported", "clause supports the complete proposal")
 
 
@@ -188,6 +237,8 @@ def _rule_values(clause: Mapping[str, Any], proposal: Mapping[str, Any]) -> tupl
 
 
 def _benefit(row: sqlite3.Row) -> Benefit:
+    if not str(row["benefit_id"] or "").strip():
+        raise ValueError("active_rules contains an unmapped row; refusing to load it")
     return Benefit(
         benefit_id=row["benefit_id"], card=row["card"] or _card(row["benefit_id"]),
         period_type=row["period_type"], period_amount_minor=row["period_amount_minor"],

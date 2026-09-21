@@ -9,7 +9,9 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
+from perk_watch.benefit_mapping import load_benefit_mapping
 from perk_watch.benefits import load_persisted_benefits
+from perk_watch.raw_data import data_root
 from perk_watch.rule_registry import SQLiteRuleRegistry
 
 
@@ -41,6 +43,16 @@ def main() -> None:
         assert [row.benefit_id for row in restarted.active_benefits()] == ["amex_platinum_test"]
         assert load_persisted_benefits(path)[0].period_amount_minor == 2500
     print("rule_registry: accepted=1 rejected=1 restart=stable")
+
+    # When the reviewed real mapping exists, the real registry must reflect it.
+    mapping = load_benefit_mapping(data_root(), require_reviewed=True)
+    real_note = "absent"
+    if mapping.reviewed:
+        real_registry = SQLiteRuleRegistry(path=data_root() / "prepared" / "rules" / "registry.sqlite3")
+        active = real_registry.active_benefits()
+        assert len(active) == 15, f"expected 15 active rules, got {len(active)}"
+        real_note = f"verified ({len(active)} active rules)"
+    print(f"real_registry: {real_note}")
 
 
 if __name__ == "__main__":
