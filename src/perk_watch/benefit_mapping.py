@@ -176,11 +176,13 @@ def build_draft_mapping(
             "clause_slug": slug,
             "period_type": None,
             "period_amount_minor": None,
+            "merchant_group": None,
             "eligibility": {"merchant_group": None},
             "enrollment_required": None,
             "portal_gated": None,
             "effective_from": None,
             "effective_to": None,
+            "missing_data_source": None,
             "governing_clause_ids": sorted(groups[(card, slug)]),
             "disposition": "indeterminate",
         })

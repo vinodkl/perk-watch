@@ -60,7 +60,7 @@ class BenefitMappingTest(unittest.TestCase):
         self.assertTrue(all(row["disposition"] == "indeterminate" for row in draft["benefits"]))
         self.assertEqual({row["clause_slug"] for row in draft["benefits"]}, {"200-airline-fee-credit", "chunk"})
         proposed_fields = {
-            "benefit_id", "card", "period_type", "period_amount_minor", "eligibility",
+            "benefit_id", "card", "period_type", "period_amount_minor", "merchant_group", "eligibility",
             "enrollment_required", "portal_gated", "effective_from", "effective_to",
             "governing_clause_ids",
         }
