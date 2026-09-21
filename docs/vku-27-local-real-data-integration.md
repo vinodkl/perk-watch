@@ -9,7 +9,10 @@ amounts, dates, identifiers, evidence, filenames, or transaction rows.
 separately from the synthetic frozen benchmark. It applies the reviewed local
 benefit mappings, reruns preparation, and exercises the deterministic
 registry/ledger evaluator, official-clause citation retrieval, ReAct question
-path, and multi-benefit planner.
+path, and multi-benefit planner. The integration-only fallback treats unresolved
+merchant descriptors as outside the active benefit groups. It is recorded as an
+owner-directed demo assumption and may cause false-unused results; core resolver
+behavior remains conservative.
 
 ## Data authority
 
@@ -39,7 +42,10 @@ accuracy benchmark. Unresolved rule fields remain indeterminate. Missing local
 merchant resolution can make transaction-backed status/value/deadline results
 indeterminate, and genuinely ambiguous descriptors remain unresolved rather
 than invented. The captured Chase guide is structured into individual local
-clauses without fetching or login. Accuracy, false-unused, precision, and recall are unavailable
+clauses without fetching or login. Only its supported $100 annual hotel credit
+and $120 four-year Global Entry/TSA PreCheck/NEXUS credit become active rules;
+other non-transaction benefits are known-untrackable and unsupported fields
+remain indeterminate. Accuracy, false-unused, precision, and recall are unavailable
 (`null`) because no human ground truth was collected. Synthetic benchmark
 counts and this integration's counts are never blended.
 

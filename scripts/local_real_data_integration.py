@@ -19,6 +19,7 @@ from datetime import date
 import hashlib
 import json
 from pathlib import Path
+import sqlite3
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -102,6 +103,24 @@ SUPPORTED: dict[str, dict] = {
     },
 }
 
+CHASE_SUPPORTED: dict[str, dict] = {
+    "100-annual-chase-travel-hotel-credit": {
+        "period_type": "calendar_year", "period_amount_minor": 10000,
+        "merchant_group": "amex-travel-hotel", "enrollment_required": False, "portal_gated": False,
+    },
+    "global-entry-tsa-precheck-nexus-credit": {
+        "period_type": "four_year", "period_amount_minor": 12000,
+        "merchant_group": "global-entry-tsa", "enrollment_required": False, "portal_gated": False,
+    },
+}
+
+CHASE_UNTRACKABLE_MARKERS = (
+    "access", "assistance", "auto-rental", "baggage", "concierge", "coverage",
+    "dashpass", "events", "extended-warranty", "insurance", "luggage", "membership",
+    "no-foreign", "protection", "promo", "roadside", "subscription", "travel-accident",
+    "trip-cancellation", "trip-delay",
+)
+
 _MISSING_SOURCES = {
     "membership": "issuer membership status portal",
     "rewards": "issuer rewards points ledger",
@@ -169,8 +188,8 @@ def build_assumption_mapping(clauses: list[dict], terms_version: str) -> dict:
     rows = []
     for row in draft["benefits"]:
         slug = str(row["clause_slug"])
-        if slug in SUPPORTED:
-            spec = SUPPORTED[slug]
+        spec = SUPPORTED.get(slug) or CHASE_SUPPORTED.get(slug)
+        if spec is not None:
             updated = dict(row)
             updated.update({
                 "disposition": "supported",
@@ -182,7 +201,7 @@ def build_assumption_mapping(clauses: list[dict], terms_version: str) -> dict:
                 "portal_gated": bool(spec["portal_gated"]),
                 "missing_data_source": None,
             })
-        elif slug in UNTRACKABLE:
+        elif slug in UNTRACKABLE or any(marker in slug for marker in CHASE_UNTRACKABLE_MARKERS):
             updated = dict(row)
             updated.update({
                 "disposition": "known_untrackable",
@@ -192,7 +211,9 @@ def build_assumption_mapping(clauses: list[dict], terms_version: str) -> dict:
                 "eligibility": {"merchant_group": None},
                 "enrollment_required": None,
                 "portal_gated": None,
-                "missing_data_source": _MISSING_SOURCES[UNTRACKABLE[slug]],
+                "missing_data_source": _MISSING_SOURCES.get(
+                    UNTRACKABLE.get(slug, "account"), "issuer account/benefit portal"
+                ),
             })
         else:
             updated = dict(row)
@@ -240,7 +261,7 @@ def build_assumption_mapping(clauses: list[dict], terms_version: str) -> dict:
                 "portal_gated": bool(spec["portal_gated"]),
                 "note": spec.get("note", "derived from guide slug/clause text"),
             }
-            for slug, spec in sorted(SUPPORTED.items())
+            for slug, spec in sorted({**SUPPORTED, **CHASE_SUPPORTED}.items())
         },
         "known_untrackable_categories": {
             name: sorted(slug for slug, category in UNTRACKABLE.items() if category == name)
@@ -456,16 +477,28 @@ def main() -> None:
         terms_version=terms_version,
     )
 
-    # Evaluate the real transaction evidence using only recorded owner-directed
-    # account-state assumptions. No merchant-group table is supplied, so every
-    # supported benefit with an in-period transaction is indeterminate
-    # ("unresolved_merchant").
+    # Evaluate real transaction evidence using recorded owner-directed
+    # account-state assumptions plus this integration-only fallback: unresolved
+    # descriptors are assumed outside the active benefit groups. The conservative
+    # resolver default is unchanged; this can cause false-unused results.
     ledger = SQLiteLedger(root)
     merchant_decisions = ledger.decisions()
     merchant_resolution_counts = {
         "total": len(merchant_decisions),
         "resolved": sum(row.resolution_status == "resolved" for row in merchant_decisions),
         "indeterminate": sum(row.resolution_status == "indeterminate" for row in merchant_decisions),
+    }
+    with sqlite3.connect(ledger.path) as connection:
+        fallback_descriptors = frozenset(
+            row[0] for row in connection.execute(
+                "SELECT descriptor FROM merchant_decisions WHERE resolution_status = 'indeterminate'"
+            )
+        )
+    merchant_fallback = {
+        "applied": True,
+        "descriptor_count": len(fallback_descriptors),
+        "assumption": "unresolved merchant descriptors are outside the 13 active benefit groups",
+        "risk": "may cause false-unused results",
     }
     enrolled = {
         row["benefit_id"]: True
@@ -484,6 +517,7 @@ def main() -> None:
         return dedupe(evaluate_persisted_benefits(
             registry_path, ledger, as_of, enrolled=enrolled, portal_confirmed=portal_confirmed,
             merchant_groups=merchant_groups,
+            excluded_descriptors=fallback_descriptors,
         ))
 
     retrieve_official = build_offline_retriever(mapping, index_metadata, terms_version)
@@ -565,6 +599,7 @@ def main() -> None:
             },
             "registry_decision_count": len(decisions),
             "merchant_decisions": merchant_resolution_counts,
+            "merchant_fallback": merchant_fallback,
         },
         "outputs": {
             "assumptions": assumptions_path.relative_to(root).as_posix(),
@@ -599,6 +634,7 @@ def main() -> None:
             "answer": answer_dict,
         },
         "merchant_resolution": merchant_resolution_counts,
+        "merchant_fallback": merchant_fallback,
         "active_benefits_by_card": active_benefits_by_card,
         "community_retrieval": {
             "available": community_retrieval["available"],
@@ -625,8 +661,9 @@ def main() -> None:
             "community inputs; community evidence is non-authoritative and cannot change status, "
             "amount, remaining value, or deadline.",
             f"Real transaction evidence has {merchant_resolution_counts['resolved']} resolved and "
-            f"{merchant_resolution_counts['indeterminate']} indeterminate merchant decisions; "
-            "remaining ambiguity stays indeterminate.",
+            f"{merchant_resolution_counts['indeterminate']} indeterminate merchant decisions. "
+            "This integration applies the explicit outside-group fallback to the indeterminate "
+            "descriptors and records the false-unused risk.",
             "The prepared community corpus is real and non-authoritative; its short benefit IDs do "
             "not match the mapped IDs, so no community idea is attached to a mapped benefit.",
             "Chase guide benefits are individually structured from local text; unmapped "
