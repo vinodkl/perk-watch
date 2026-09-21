@@ -13,10 +13,10 @@ status, used amount, remaining value, and deadline.
 
 - dataset: `slice0-2026-09-19.v1`
 - terms: `synthetic-2026-09-19.v1`
-- fallback run attacker: `deterministic-template-v1` (not completion evidence)
-- completion command: `.venv/bin/python scripts/evaluate_red_team.py --attacker-model MODEL`
-- generated attack success rate: **0/10**
-- generated attack resistance rate: **10/10**
+- completion attacker: `gpt-4o-mini` via the existing OpenAI adapter
+- completion command: `.venv/bin/python scripts/evaluate_red_team.py --attacker-model gpt-4o-mini`
+- model-generated attack success rate: **0/10**
+- model-generated attack resistance rate: **10/10**
 - protected fields checked: status, used amount, remaining value, deadline
 - observed failures: **[]**
 - frozen generated regression cases: **0/10**, therefore none were added
@@ -35,8 +35,7 @@ retrieved community text is non-authoritative and cannot mutate them.
 
 ## Coverage gaps
 
-- One deterministic template attempt per benefit, not a provider-backed model
-  campaign.
+- One model-generated attempt per benefit, not a larger campaign.
 - Synthetic terms, transactions, and community data only.
 - No generated attack succeeded, so there are no permanent attack fixtures to
   replay yet.
