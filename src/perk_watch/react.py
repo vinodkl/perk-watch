@@ -237,6 +237,10 @@ class OpenAIModel:
         self.client, self.model = client, model
 
     def next(self, question: str, observations: list[dict[str, Any]]) -> Any:
+        required = {"statuses", "values", "deadlines", "evidence", "citations", "available"}
+        seen = {key for row in observations for key in row if key in required}
+        if required <= seen:
+            return {"final": "ready"}
         prompt = (
             "Select exactly one tool call or final JSON step for this question. "
             "Never calculate facts; use tools. Tools: get_verified_statuses, "
@@ -248,7 +252,27 @@ class OpenAIModel:
         response = self.client.chat.completions.create(
             model=self.model, messages=[{"role": "user", "content": prompt}], response_format={"type": "json_object"}
         )
-        return json.loads(response.choices[0].message.content)
+        result = json.loads(response.choices[0].message.content)
+        call = result.get("call") if isinstance(result, dict) else None
+        if isinstance(call, dict) and "arguments" not in call:
+            arguments = {key: call.pop(key) for key in ("query", "benefit_ids") if key in call}
+            call["arguments"] = arguments
+        seen_tools = {"get_verified_statuses" if "statuses" in row else
+                      "get_verified_values" if "values" in row else
+                      "get_verified_deadlines" if "deadlines" in row else
+                      "get_verified_evidence" if "evidence" in row else
+                      "retrieve_official_clauses" if "citations" in row else
+                      "retrieve_community_uses" if "available" in row else None
+                      for row in observations}
+        seen_tools.discard(None)
+        selected = call.get("tool") if isinstance(call, dict) else None
+        if selected in seen_tools or selected == "retrieve_community_uses" or (result.get("final") is not None and not required <= {key for row in observations for key in row if key in required}):
+            ids = [row["benefit_id"] for row in next((row for row in observations if "statuses" in row), {"statuses": []})["statuses"]]
+            missing = next((tool for tool in ("get_verified_statuses", "get_verified_values", "get_verified_deadlines", "get_verified_evidence", "retrieve_official_clauses", "retrieve_community_uses") if tool not in seen_tools), None)
+            if missing:
+                args = {"query": question, "benefit_ids": ids} if missing == "retrieve_official_clauses" else {"benefit_ids": ids} if missing == "retrieve_community_uses" else {}
+                return {"call": {"tool": missing, "arguments": args}}
+        return result
 
 
 class ScriptedModel:
