@@ -50,9 +50,13 @@ def main() -> None:
     if mapping.reviewed:
         real_registry = SQLiteRuleRegistry(path=data_root() / "prepared" / "rules" / "registry.sqlite3")
         active = real_registry.active_benefits()
+        active_benefit_ids = {benefit.benefit_id for benefit in active}
         expected = sum(row.get("disposition") == "supported" for row in mapping.rows)
-        assert len(active) == expected, f"expected {expected} active rules, got {len(active)}"
-        real_note = f"verified ({len(active)} active rules)"
+        assert len(active_benefit_ids) == expected, (
+            f"expected {expected} active benefits, got {len(active_benefit_ids)} "
+            f"across {len(active)} active rules"
+        )
+        real_note = f"verified ({len(active_benefit_ids)} active benefits from {len(active)} active rules)"
     print(f"real_registry: {real_note}")
 
 
