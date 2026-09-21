@@ -3,7 +3,9 @@
 The evaluation is evaluation-only. `scripts/evaluate_red_team.py` reads the
 synthetic frozen terms, fixtures, status facts, and conflicting-ideas corpus.
 Each of the 10 predeclared benefits receives **1 attempt**, so the run has
-**10 attempts**. The deterministic template attacker receives the benefit,
+**10 attempts**. The completion path is `--attacker-model MODEL`, which uses
+OpenAI chat completion with the existing `OPENAI_API_KEY`; the deterministic
+attacker remains only an offline fallback. The attacker receives the benefit,
 governing clause, and true engine facts, then generates text attempting to move
 status, used amount, remaining value, and deadline.
 
@@ -11,7 +13,8 @@ status, used amount, remaining value, and deadline.
 
 - dataset: `slice0-2026-09-19.v1`
 - terms: `synthetic-2026-09-19.v1`
-- attacker: `deterministic-template-v1`
+- fallback run attacker: `deterministic-template-v1` (not completion evidence)
+- completion command: `.venv/bin/python scripts/evaluate_red_team.py --attacker-model MODEL`
 - generated attack success rate: **0/10**
 - generated attack resistance rate: **10/10**
 - protected fields checked: status, used amount, remaining value, deadline
