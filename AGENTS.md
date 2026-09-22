@@ -1,43 +1,53 @@
 # PerkWatch agent instructions
 
-## Scope
+## Work routing
 
-Keep `evals/data/frozen/` synthetic and reproducible. Real or personal card data and public-community provenance are local-only inputs under `PERKWATCH_DATA_DIR`.
+PerkWatch has two implementations:
 
-## Execution order
+- **V2 is the default for new work.** Keep V2 implementation under `v2/`. Read `docs/explanation/perk-watch-v2-design.md`, then read the ticket for the active V2 phase. The five V2 phase tickets define V2 execution order until that work is mirrored in Linear.
+- **V1 is legacy.** For explicit V1 work, read `docs/architecture-flow.md` and check the current PerkWatch Capstone blocking relations in Linear. Linear remains the source of truth for V1 status and blocking relations.
 
-Before choosing work, read `docs/architecture-flow.md` and check the current PerkWatch Capstone blocking relations in Linear. Linear status and blocking relations are the source of truth; the document explains the intended offline, online, and evaluation sequence. Do not start a blocked or below-the-line ticket unless the user explicitly changes the plan.
+Do not edit V1 code for a V2 ticket unless the user explicitly asks. V1 may be inspected for behavior, but V2 must not import V1 modules.
 
-## Local raw data
+## Local card data
 
 Read `.agents/skills/local-card-data-staging/SKILL.md` before collecting or importing card data.
 
-- Use `PERKWATCH_DATA_DIR`; this repository's configured local root is `data/real/`.
-- Keep real benefits, statements, CSV/OFX exports, credentials, databases, indexes, and derived output out of git.
-- Use `src/perk_watch/raw_data.py` for imports so content hashes and source records are written.
-- Never edit or replace `evals/data/frozen/` with real data.
-- User login, MFA, CAPTCHA, account selection, and any consent must remain manual.
+- Use `PERKWATCH_DATA_DIR`. V1 uses `data/real/`; V2 uses `v2/data/real/` by default.
+- Keep real benefits, statements, CSV/OFX exports, credentials, databases, search files, and generated output out of git.
+- User login, MFA, CAPTCHA, account selection, and consent remain manual.
+- For V1 imports, use `src/perk_watch/raw_data.py` so hashes and source records are written.
+- Never replace tracked evaluation examples with real data.
 
-## Community corpus collection
+## Community collection
 
-A dedicated offline corpus-setup job may make read-only, unauthenticated requests to public Reddit pages for the currently approved Slice scope. It may run only during an explicit collection action, never from application runtime or an end-user application query.
+Public Reddit collection is an explicit offline action. It never runs from the application or while answering a user question.
 
-- Store only post/comment IDs, public URLs, source and fetch dates, short paraphrased excerpts, derived ideas, benefit IDs, and review metadata under `PERKWATCH_DATA_DIR/raw/<card>/community/<collection-version>/`.
-- Do not commit community sources, snapshots, full threads, usernames, credentials, cookies, session artifacts, or private/deleted content.
-- Do not automate login, solve CAPTCHA/MFA, or bypass access controls. A login wall is a blocker.
-- Keep processing deterministic after capture: the application reads only prepared community data and makes no external community requests.
+- Store only post/comment IDs, public URLs, source and collection dates, short paraphrases, derived ideas, benefit IDs, and model-check metadata under `PERKWATCH_DATA_DIR/raw/<card>/community/<collection-version>/`.
+- Do not commit community sources, full discussions, usernames, credentials, cookies, session files, or private/deleted content.
+- Use public pages without logging in. A login wall is a blocker.
+- The application reads only prepared local data and makes no Reddit requests.
 
 ## Safety boundaries
 
-Do not add automated login, credential storage, bank/card APIs, cookie extraction, or live external lookup from application runtime or end-user application queries. Do not commit real card data, public-community corpus data, provider session artifacts, or full community threads.
+Do not add automated login, credential storage, bank/card APIs, cookie extraction, or live external lookup while answering user questions. Do not commit real card data, public-community data, provider session files, or full community discussions.
 
 ## Checks
 
-Run the smallest relevant checks after changes:
+Run the checks for the implementation being changed.
+
+V1:
 
 ```sh
 python3 scripts/check_local_data_guard.py
 python3 evals/scripts/validate_slice0.py
 ```
 
-Do not commit unless the user explicitly asks.
+V2:
+
+```sh
+python3 v2/scripts/check_local_data_guard.py
+python3 -m unittest discover -s v2/tests
+```
+
+Run the smallest additional tests that cover the change. Do not commit unless the user explicitly asks.
