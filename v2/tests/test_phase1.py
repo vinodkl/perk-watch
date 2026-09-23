@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from perk_watch.prepare.benefits import load_benefits
 from perk_watch.prepare.community import load_ideas
 from perk_watch.prepare.credits import match_credits
+from perk_watch.prepare.extractor import OpenAIBenefitExtractor
 from perk_watch.prepare.merchants import MERCHANTS, OpenAIMerchantChooser, match_all
 from perk_watch.prepare.run import prepare
 from perk_watch.prepare.transactions import load_transactions
@@ -40,6 +41,15 @@ class Phase1Test(unittest.TestCase):
         document["sources"].append({"card_id": card.replace("-", "_"), "kind": kind, "filename": filename, "path": path.relative_to(self.root).as_posix(), "content_sha256": digest})
         index.write_text(json.dumps(document), encoding="utf-8")
 
+    def test_obvious_amount_and_period_are_repaired_locally(self):
+        path = self.root / "raw/amex-platinum/benefits/guide.json"
+        path.write_text(json.dumps({"benefits": [{
+            "title": "Travel credit", "terms": "Receive a credit of $100 each month"
+        }]}), encoding="utf-8")
+        rows, _ = load_benefits("amex_platinum", path)
+        self.assertEqual(rows[0]["amount_minor"], 10000)
+        self.assertEqual(rows[0]["period"], "monthly")
+
     def test_invalid_llm_output_is_skipped_and_unknowns_are_saved(self):
         self._source("amex-platinum", "benefits", "guide.json", "{}")
         self._source("chase-sapphire-preferred", "benefits", "guide.json", "{}")
@@ -49,9 +59,47 @@ class Phase1Test(unittest.TestCase):
         self.assertEqual(rows[0]["amount_minor"], None)
         self.assertEqual(stats["skipped"], 1)
 
+    def test_benefit_extractor_requests_local_structured_fields(self):
+        class Completions:
+            def create(self, **kwargs):
+                system = kwargs["messages"][0]["content"]
+                user = kwargs["messages"][1]["content"]
+                self.request = (system, user)
+                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(
+                    content=json.dumps({"benefits": [{"title": "Travel", "terms": "Source terms", "amount_minor": 10000,
+                                                       "period": "monthly", "eligible_merchants": ["uber"]}]})
+                ))])
+
+        completions = Completions()
+        extractor = OpenAIBenefitExtractor(SimpleNamespace(chat=SimpleNamespace(completions=completions)))
+        result = extractor("Local benefit text", "amex:benefits:source")
+
+        self.assertEqual(result[0]["amount_minor"], 10000)
+        self.assertIn("Do not browse", completions.request[0])
+        self.assertIn("amex:benefits:source", completions.request[1])
+
+    def test_incomplete_structured_benefits_are_extracted_one_at_a_time(self):
+        document = json.dumps({"benefits": [
+            {"benefit_id": "amex_platinum_one", "title": "One", "terms": "One terms"},
+            {"benefit_id": "amex_platinum_two", "title": "Two", "terms": "Two terms"},
+        ]})
+        path = self.root / "raw/amex-platinum/benefits/guide.json"
+        path.write_text(document, encoding="utf-8")
+        calls = []
+
+        def extractor(text, _):
+            calls.append(json.loads(text)["benefits"][0]["title"])
+            item = json.loads(text)["benefits"][0]
+            return [{**item, "amount_minor": 100, "period": "monthly", "eligible_merchants": ["uber"]}]
+
+        rows, _ = load_benefits("amex_platinum", path, extractor)
+        self.assertEqual(calls, ["One", "Two"])
+        self.assertEqual(len(rows), 2)
+
     def test_structured_benefit_json_bypasses_the_model_extractor(self):
         document = json.dumps({"benefits": [{
-            "benefit_id": "amex_platinum_travel", "title": "Travel", "terms": "Exact issuer terms"
+            "benefit_id": "amex_platinum_travel", "title": "Travel", "terms": "Exact issuer terms",
+            "amount_minor": 10000, "period": "monthly", "eligible_merchants": ["uber"]
         }]})
         self._source("amex-platinum", "benefits", "guide.json", document)
 

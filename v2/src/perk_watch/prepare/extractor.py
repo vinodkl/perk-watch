@@ -14,8 +14,19 @@ class OpenAIBenefitExtractor:
             model=self.model,
             temperature=0,
             response_format={"type": "json_object"},
-            messages=[{"role": "system", "content": "Return JSON {benefits:[...]}. Use null for unclear fields. Every item needs title and supporting terms."},
-                      {"role": "user", "content": text}],
+            messages=[{"role": "system", "content": (
+                "Read only the supplied issuer benefit document and return JSON "
+                "{benefits:[{benefit_id,title,terms,amount_minor,period,eligible_merchants,"
+                "enrollment_required,booking_required}]}. One item per distinct benefit. "
+                "amount_minor is whole USD cents, so $100 is 10000. period must be "
+                "monthly, quarterly, yearly, account_year, or null. Include only "
+                "merchants clearly named as eligible. terms must be a short supporting "
+                "excerpt from the supplied document. Extract fields from the title and terms; "
+                "use null only when the supplied text does not support the field. "
+                "Do not browse, use outside knowledge, or calculate transaction usage. "
+                "Preserve any supplied benefit_id and title. Return JSON only."
+            )},
+                      {"role": "user", "content": f"Source reference: {source_ref}\\n\\n{text}"}],
         )
         value = json.loads(response.choices[0].message.content)
         return value.get("benefits", []) if isinstance(value, dict) else []
