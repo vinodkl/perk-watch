@@ -4,7 +4,7 @@
 
 PerkWatch has two implementations:
 
-- **V2 is the default for new work.** Keep V2 implementation under `v2/`. Read `docs/explanation/perk-watch-v2-design.md`, then read the ticket for the active V2 phase. The five V2 phase tickets define V2 execution order until that work is mirrored in Linear.
+- **V2 is the default for new work.** Keep V2 implementation under `v2/`. Read `docs/explanation/perk-watch-v2-design.md`, then read the ticket for the active V2 phase. The five core V2 phase tickets define delivery order until that work is mirrored in Linear; the optional Phase 6 Jev experiment follows Phase 5.
 - **V1 is legacy.** For explicit V1 work, read `docs/architecture-flow.md` and check the current PerkWatch Capstone blocking relations in Linear. Linear remains the source of truth for V1 status and blocking relations.
 
 Do not edit V1 code for a V2 ticket unless the user explicitly asks. V1 may be inspected for behavior, but V2 must not import V1 modules.

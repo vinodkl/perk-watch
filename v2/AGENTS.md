@@ -11,6 +11,7 @@ The phase tickets are:
 3. `../docs/explanation/perk-watch-v2-phase-3-agent-and-cli.md`
 4. `../docs/explanation/perk-watch-v2-phase-4-community-ideas.md`
 5. `../docs/explanation/perk-watch-v2-phase-5-evaluation.md`
+6. `../docs/explanation/perk-watch-v2-phase-6-jev-experiments.md` (optional, after Phase 5)
 
 ## Code scope
 

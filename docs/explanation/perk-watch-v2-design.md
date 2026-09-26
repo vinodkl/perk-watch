@@ -25,7 +25,7 @@ The first version covers Amex Platinum and Chase Sapphire Preferred. It runs loc
 
 ## Monthly update
 
-After all delivery phases are complete, PerkWatch updates local data once a month. The monthly update is user-assisted because issuer login, multifactor authentication, account selection, and transaction export remain manual.
+After the five core delivery phases are complete, PerkWatch updates local data once a month. The monthly update is user-assisted because issuer login, multifactor authentication, account selection, and transaction export remain manual.
 
 The update has three steps:
 
@@ -158,7 +158,7 @@ The system comparison evaluates answering from search results without tools agai
 
 ## Delivery phases
 
-PerkWatch is delivered in five phases so each phase leaves a working system.
+PerkWatch is delivered in five core phases, followed by an optional experiment phase. Each core phase leaves a working system.
 
 ### Phase 1: monthly update and local data
 
@@ -180,15 +180,20 @@ Build community search, add `search_community_ideas`, and include clearly labele
 
 Run the question set, compare answers produced with and without tools, and test rewording questions and reordering search results. Keep an added search step only when it improves the results.
 
+### Phase 6: Jev experiments (optional)
+
+Using Phase 5 results as a baseline, test whether TypeSafe Jev improves the ordering of shortlisted official benefit text and the matching of otherwise-unknown merchant descriptions. Measure accuracy, unknown handling, latency, calls, and cost before adopting either change. Keep calculations and official-rule validation in code, and require explicit approval before sending prepared benefit text or cleaned descriptions to a new provider. The working V2 system must not depend on these experiments.
+
 ## Phase tickets
 
-Implementation work is split into five tickets:
+Implementation work is split into five core tickets and one optional experiment ticket:
 
 1. [Phase 1: Monthly update and local data](perk-watch-v2-phase-1-local-data.md)
 2. [Phase 2: Benefit search and calculations](perk-watch-v2-phase-2-search-and-calculations.md)
 3. [Phase 3: Agent and CLI](perk-watch-v2-phase-3-agent-and-cli.md)
 4. [Phase 4: Community ideas](perk-watch-v2-phase-4-community-ideas.md)
 5. [Phase 5: Evaluation and search improvements](perk-watch-v2-phase-5-evaluation.md)
+6. [Phase 6: Jev experiments](perk-watch-v2-phase-6-jev-experiments.md)
 
 ## Code structure
 

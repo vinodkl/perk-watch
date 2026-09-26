@@ -1,10 +1,11 @@
-"""Read-only Phase 2 application functions."""
+"""Read-only application functions for prepared PerkWatch data."""
 from __future__ import annotations
 
 import os
 import sqlite3
 from pathlib import Path
 
+from .agent import answer_with_db
 from .calculations import calculate_all, calculate_benefit
 from .search import search_benefits
 
@@ -37,5 +38,14 @@ def find_benefits(root: str | Path | None, question: str, **filters: object) -> 
     db = database(root)
     try:
         return search_benefits(db, question, **filters)
+    finally:
+        db.close()
+
+
+def answer(question: str, root: str | Path | None = None, *, client=None,
+           model: str = "gpt-4o-mini") -> str:
+    db = database(root)
+    try:
+        return answer_with_db(db, question, client=client, model=model)
     finally:
         db.close()

@@ -18,14 +18,14 @@ Community search is added in Phase 4.
 
 ## Work
 
-- [ ] Add typed input and output records for each tool.
-- [ ] Implement a short tool-selection loop with a fixed call limit and retry limit.
-- [ ] Reject unknown tools, invalid inputs, and repeated identical calls.
-- [ ] Return tool errors to the LLM instead of hiding them.
-- [ ] Require the final answer to use amounts, dates, statuses, transaction IDs, and citations returned by tools.
-- [ ] Add `app.answer(question)` as the shared entry point.
-- [ ] Add a small `scripts/ask.py` command-line interface.
-- [ ] Keep collection, preparation, database writes, and external fetching out of the question path.
+- [x] Add typed input and output records for each tool.
+- [x] Implement a short tool-selection loop with a fixed call limit and retry limit.
+- [x] Reject unknown tools, invalid inputs, and repeated identical calls.
+- [x] Return tool errors to the LLM instead of hiding them.
+- [x] Have the model select structured evidence indexes, then render only the selected tool results; it cannot supply free-form factual claims.
+- [x] Add `app.answer(question)` as the shared entry point.
+- [x] Add a small `scripts/ask.py` command-line interface.
+- [x] Keep collection, preparation, database writes, and external fetching out of the question path.
 
 ## Done when
 
