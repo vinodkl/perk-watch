@@ -26,7 +26,7 @@ Public Reddit collection is an explicit offline action. It never runs from the a
 
 ## Runtime
 
-Runtime reads prepared local data only. It does not collect issuer data, import statements, contact Reddit, or change stored data while answering a question. Keep transactions in SQLite and use embedding search only for benefit text and community ideas.
+Runtime reads prepared card data only. It does not collect issuer data, import statements, contact Reddit, or change stored card data while answering a question. Optional Phase 7 preparation and runtime diagnostics may write only privacy-safe local traces under `PERKWATCH_DATA_DIR/prepared/traces/`; they are not agent memory. Keep transactions in SQLite and use embedding search only for benefit text and community ideas.
 
 ## Safety boundaries
 

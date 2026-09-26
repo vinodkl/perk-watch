@@ -158,7 +158,7 @@ The system comparison evaluates answering from search results without tools agai
 
 ## Delivery phases
 
-PerkWatch is delivered in five core phases, followed by an optional experiment phase. Each core phase leaves a working system.
+PerkWatch is delivered in five core phases, followed by optional Jev and local-tracing phases. Each core phase leaves a working system.
 
 ### Phase 1: monthly update and local data
 
@@ -184,9 +184,13 @@ Run the question set, compare answers produced with and without tools, and test 
 
 Using Phase 5 results as a baseline, test whether TypeSafe Jev improves the ordering of shortlisted official benefit text and the matching of otherwise-unknown merchant descriptions. Measure accuracy, unknown handling, latency, calls, and cost before adopting either change. Keep calculations and official-rule validation in code, and require explicit approval before sending prepared benefit text or cleaned descriptions to a new provider. The working V2 system must not depend on these experiments.
 
+### Phase 7: local tracing and monitoring (optional)
+
+Give each offline preparation run and agent question a trace ID. Record privacy-safe JSONL events for imports, extraction, merchant matching, RAG embedding batches and index writes, and agent tool steps. A CLI summary shows failures, skips, retries, and slow steps without storing source text, prompts, tool results, vectors, or transaction details. Tracing does not provide conversation memory or send data to a hosted service. This phase depends on Phase 5, not on the Jev experiment.
+
 ## Phase tickets
 
-Implementation work is split into five core tickets and one optional experiment ticket:
+Implementation work is split into five core tickets and two optional tickets:
 
 1. [Phase 1: Monthly update and local data](perk-watch-v2-phase-1-local-data.md)
 2. [Phase 2: Benefit search and calculations](perk-watch-v2-phase-2-search-and-calculations.md)
@@ -194,6 +198,7 @@ Implementation work is split into five core tickets and one optional experiment 
 4. [Phase 4: Community ideas](perk-watch-v2-phase-4-community-ideas.md)
 5. [Phase 5: Evaluation and search improvements](perk-watch-v2-phase-5-evaluation.md)
 6. [Phase 6: Jev experiments](perk-watch-v2-phase-6-jev-experiments.md)
+7. [Phase 7: Local tracing and monitoring](perk-watch-v2-phase-7-local-tracing.md)
 
 ## Code structure
 
