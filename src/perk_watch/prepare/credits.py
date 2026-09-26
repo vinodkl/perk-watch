@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 from typing import Any, Iterable, Mapping
 
+from ..cards import load_cards
+
 
 _STOPWORDS = {
     "access", "annual", "benefit", "card", "chase", "credit", "eligible", "express", "for",
@@ -32,7 +34,8 @@ def match_credits(card_id: str, transactions: Iterable[Mapping[str, Any]],
 
 
 def _is_credit(card_id: str, amount: int) -> bool:
-    return amount < 0 if card_id == "amex_platinum" else amount > 0 if card_id == "chase_sapphire_preferred" else False
+    sign = load_cards().get(card_id, {}).get("statement_credit_sign")
+    return (amount < 0 if sign == "negative" else amount > 0) if sign else False
 
 
 def _tokens(value: str) -> set[str]:

@@ -23,8 +23,10 @@ allowed to differ, but the privacy boundary does not.
 
 ## Workflow
 
-1. Read `AGENTS.md` and load the configured root. If `.env` is present, use
-   its `PERKWATCH_DATA_DIR`; do not commit `.env`.
+1. Read `AGENTS.md` and `src/perk_watch/cards.json`; select an existing stable
+   card ID from that catalog. Do not collect an unlisted card until its export
+   and calculation rules have been tested. Load the configured root. If `.env`
+   is present, use its `PERKWATCH_DATA_DIR`; do not commit `.env`.
 2. Open the issuer's site in the user's visible browser. If it is blocked in
    the in-app browser, use an approved local Chrome/Browser Use connection only
    after the user explicitly authorizes it.
@@ -40,8 +42,9 @@ allowed to differ, but the privacy boundary does not.
    ```python
    from perk_watch.staging.raw_data import import_benefit_guide, import_transactions
 
-   import_benefit_guide(guide_path, card="amex_platinum", url=issuer_url)
-   import_transactions(export_path, card="amex_platinum")
+   card_id = "amex_platinum"  # Replace with the selected ID from cards.json.
+   import_benefit_guide(guide_path, card=card_id, url=issuer_url)
+   import_transactions(export_path, card=card_id)
    ```
 
    Use the same card ID on every monthly run. Imports are content-addressed and
@@ -75,5 +78,8 @@ The configured root contains one directory per card:
 - `raw/<card>/sources.json`: source URL, fetch time, filename, and content hash.
 - `prepared/`: the linked, normalized local model built by `prepare_data.py`.
 
-Use a stable card ID such as `amex_platinum` or `chase_sapphire_preferred`;
-the directory becomes `amex-platinum` or `chase-sapphire-preferred`.
+Use the selected stable ID from `src/perk_watch/cards.json` on every monthly run;
+underscores become hyphens in the directory name. The catalog contains no
+credentials or account details. Its statement-credit sign describes the
+currently supported export convention; verify it against a sample export
+before adding a card.

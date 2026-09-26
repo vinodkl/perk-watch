@@ -33,13 +33,15 @@ safety boundaries before collecting.
    `community-reddit-<YYYY-MM-DD>.v1`, bumping the `.vN` suffix when a
    same-date version already exists (e.g. `community-reddit-2026-09-20.v1` →
    `.v2`). Always create a fresh version; never overwrite an existing one.
-2. Work one card directory at a time. Read its newly collected benefit guide
+2. Work one card directory at a time. Read `src/perk_watch/cards.json` for the
+   supported card ID and display name, then read its newly collected benefit guide
    and retain stable benefit IDs between monthly runs. Keep only benefit IDs,
    names, and source references in community records; verify IDs are unique
    before searching.
 3. Choose public, benefit-relevant search terms and subreddit scope. Prefer
    `r/AmexPlatinum` for Amex benefits and `r/CreditCards` when it is a better
-   fit. In a visible scratch browser tab, perform read-only searches. For each
+   fit. Choose scope based on the selected card and benefit; the catalog is not
+   a list of approved subreddits. In a visible scratch browser tab, perform read-only searches. For each
    benefit, collect and deduplicate roughly 10–20 public post/comment sources.
    If none are usable, record `no_usable_ideas` with an empty source list.
 4. Write `collection_results.json` using the schema of the existing local

@@ -1,0 +1,10 @@
+{
+  "amex_platinum": {
+    "display_name": "Amex Platinum",
+    "statement_credit_sign": "negative"
+  },
+  "chase_sapphire_preferred": {
+    "display_name": "Chase Sapphire Preferred",
+    "statement_credit_sign": "positive"
+  }
+}

@@ -15,26 +15,49 @@ export PERKWATCH_DATA_DIR="$HOME/perk-watch-local-data"
 
 For real embedding search and model-backed extraction/agent answers, configure `OPENAI_API_KEY` in your shell (or load your local `.env` into the shell before the CLI). This sends prepared benefit/community text during index building and questions during search to OpenAI. Review that privacy tradeoff before enabling it. Without a key, preparation can still produce SQLite rows, but the CLI cannot perform production embedding search and no vectors are built.
 
-## 1. Add a card (only if it is not already supported)
+## 1. Choose a card
 
-The supported card IDs are `amex_platinum` and `chase_sapphire_preferred`. Reuse the **same ID** each month. Adding a provider is a code change, not a configuration-only step:
+The shared [`src/perk_watch/cards.json`](src/perk_watch/cards.json) currently supports `amex_platinum` and `chase_sapphire_preferred`. Use the existing ID when refreshing a card; for a new card, complete the setup in step 2 before collecting real data. Preparation loops over this catalog. Keep credentials, account details, and issuer URLs out of it.
 
-1. Add its stable ID and display name to `src/perk_watch/prepare/benefits.py:CARDS`. The raw directory uses the ID with underscores changed to hyphens.
-2. Check its guide format and benefit fields against `prepare/benefits.py`; adapt extraction/validation only where needed. Check CSV/OFX column names, date and amount signs in `prepare/transactions.py`. PDF import is **not implemented**.
-3. Define the card's statement-credit sign in `prepare/credits.py:_is_credit`, and review merchant matching in `prepare/merchants.py` and usage calculations in `runtime/calculations.py`. Do not assume the existing issuers' signs or merchant list apply.
-4. Add synthetic card, import, credit/refund, and period cases in `tests/` and `evals/cases.json`. Update the community-collection skill's search scope for the new card. Run the checks in step 6 before using real data.
+## 2. Add or refresh card data with the skills
 
-The preparation coordinator in `prepare/run.py` loops over `CARDS`, so registering the ID includes it in monthly preparation. This is deliberately not a generic provider plugin system.
+### New card: create an ID and verify support first
 
-## 2. Collect benefits, transactions, and community ideas
+1. Generate a **stable card ID** from the issuer and product name: lowercase ASCII letters and digits, words joined by underscores. For example, “Chase Sapphire Reserve” becomes `chase_sapphire_reserve`. Check that the ID is not already in [`cards.json`](src/perk_watch/cards.json); never rename an existing ID after collecting data. The raw directory uses hyphens (`chase-sapphire-reserve`).
+2. Inspect a sample export to verify its columns and amount signs. Add the ID, display name, and observed `statement_credit_sign` (`positive` or `negative`) to `cards.json`. That sign recognizes explicit statement-credit rows; it does **not** determine benefit eligibility and may vary by export format. Check the guide against `prepare/benefits.py`, CSV/OFX parsing against `prepare/transactions.py`, merchant matching, and `runtime/calculations.py`. PDF import is **not implemented**.
+3. Add synthetic import, credit/refund, and period tests, and an eval case. Run the checks in step 5. **A catalog entry alone does not make the card supported:** fix format or calculation gaps before collecting real data. Adjust the community skill's search scope if the card needs different public sources.
 
-Run the instructions in [`.agents/skills/local-card-data-staging/SKILL.md`](.agents/skills/local-card-data-staging/SKILL.md) with an agent for each card. **You** complete issuer login, MFA, account selection, consent, and the transaction export. Collect the current benefit terms and year-to-date CSV/OFX transactions, not pending charges. Do not automate issuer login or use bank APIs.
+Prompt for the setup (replace the example card name):
 
-Then explicitly run [`.agents/skills/community-corpus-collection/SKILL.md`](.agents/skills/community-corpus-collection/SKILL.md) for approved benefits. It reads public Reddit pages without login and writes a fresh, versioned local corpus of IDs, URLs, short paraphrases, ideas, and current-terms checks. A login wall is a blocker. Collection never runs as part of preparation or while answering a question.
+> I want to add Chase Sapphire Reserve to PerkWatch. Generate a stable card ID using README step 2, check it does not exist in `src/perk_watch/cards.json`, and inspect a sample guide and CSV/OFX export that I provide. Verify columns and statement-credit sign, add the catalog entry, make only necessary parser/calculation changes, and add synthetic tests and an eval case. Run the local tests and guard. Do not collect real issuer or Reddit data until this setup passes; do not add credentials or account details to the catalog.
 
-## 3. Stage raw issuer files
+After setup passes, prompt for issuer collection and staging:
 
-The local-card-data skill calls these functions after the files have been saved. For a manually supplied file, you can call them yourself from the repository root:
+> Follow `.agents/skills/local-card-data-staging/SKILL.md` for `chase_sapphire_reserve` using my `PERKWATCH_DATA_DIR`. Help me capture current benefit terms and export transactions from January 1 through today as CSV/OFX. I will handle login, MFA, account selection, consent, and export. Stage the saved files using the skill, then report counts and missing terms without printing transaction rows or account details. Stop at a format you cannot parse; do not guess amounts.
+
+Then explicitly start a **separate** community collection:
+
+> Follow `.agents/skills/community-corpus-collection/SKILL.md` for `chase_sapphire_reserve` using its newly staged benefit terms and stable benefit IDs. Collect fresh public, unauthenticated Reddit sources into a new corpus version, review ideas against current terms, and report counts or access blockers. Do not reuse an older corpus as proof of a successful refresh.
+
+Replace the example ID in both prompts with the ID you actually registered. Run step 3 afterward; inspect the new card's counts, unknowns, and source references before asking questions. An empty or wrong-sign result is a blocker.
+
+### Existing card: refresh benefits, transactions, then community
+
+Use the **existing** `amex_platinum` or `chase_sapphire_preferred` ID. The local-card-data skill stages files automatically: it copies them into `PERKWATCH_DATA_DIR/raw/<card>/` and records SHA-256 hashes and source IDs in `sources.json`. Repeated identical files are recognized; overlapping transaction exports are deduplicated during preparation. Do not include pending charges.
+
+Prompt for the card data (replace the ID to refresh the other card):
+
+> Follow `.agents/skills/local-card-data-staging/SKILL.md` for `amex_platinum` using my `PERKWATCH_DATA_DIR`. Help me capture current benefit terms and export transactions from January 1 through today as CSV/OFX. I will handle login, MFA, account selection, consent, and export. Stage the saved files with the skill, then report file counts and any missing terms without printing transaction rows or account details.
+
+After the current terms are staged, prompt separately for community collection:
+
+> Follow `.agents/skills/community-corpus-collection/SKILL.md` for `amex_platinum`. Use the newly staged terms and stable benefit IDs. Collect fresh public, unauthenticated Reddit sources into a **new** date-stamped corpus version, review ideas against current terms, and report counts or blockers. Do not claim an older corpus is refreshed.
+
+Repeat for the other card if desired, then run step 3 and inspect `prepared/report.json` for skipped or unresolved records. The community skill never runs during preparation or while answering a question. A Reddit login wall is a blocker; an older local corpus may remain available, so do not claim a successful refresh in that case. Verify that changed benefit terms and their community checks were accepted before relying on suggestions.
+
+### Manual fallback for files collected outside the skill
+
+If you already have issuer files, stage them yourself from the repository root:
 
 ```sh
 uv run python - <<'PY'
@@ -45,11 +68,11 @@ import_transactions('/path/to/export.csv', card='amex_platinum')
 PY
 ```
 
-Supported guide formats are `.json` and `.txt`; transaction formats are `.csv` and `.ofx`. Substitute the actual local paths and, if known, the real issuer source URL. Staging copies files into `PERKWATCH_DATA_DIR/raw/<card>/`, records a SHA-256 hash and source ID in `sources.json`, and recognizes repeated content. It does **not** parse, normalize, or embed the contents. The community skill writes its versioned corpus directly under `raw/<card>/community/`; do not pass it through the issuer-file staging functions.
+Supported guide formats are `.json` and `.txt`; transaction formats are `.csv` and `.ofx`. Substitute the actual local paths and, if known, the real issuer source URL. Staging recognizes repeated content but does **not** parse, normalize, or embed it. The community skill writes its versioned corpus directly under `raw/<card>/community/`; do not pass it through the issuer-file staging functions.
 
-## 4. Normalize and build the search indexes
+## 3. Normalize and build the search indexes
 
-After collection and staging for both cards:
+After collection and staging for the card(s) you are refreshing (the command processes every configured card):
 
 ```sh
 uv run python scripts/prepare_data.py --data-dir "$PERKWATCH_DATA_DIR"
@@ -60,7 +83,7 @@ python3 scripts/check_local_data_guard.py
 
 With `OPENAI_API_KEY` set, the same preparation command builds **two** stored embedding indexes via `prepare/rag_search_index.py`: official benefit text and community ideas. Check the printed `embeddings`, `community_embeddings`, and `skipped` counts and the local report. Transactions remain in SQLite; they are never embedded. Re-run this command after changing raw files or an embedding provider/model. Missing or stale vectors are skipped at search time, not rebuilt during a question.
 
-## 5. Ask through the read-only agent loop
+## 4. Ask through the read-only agent loop
 
 ```sh
 uv run python scripts/ask.py "Which benefits still have value this month?"
@@ -71,7 +94,7 @@ uv run python scripts/show_benefits.py --data-root "$PERKWATCH_DATA_DIR" --as-of
 
 `show_benefits.py` is a direct calculation path without the agent. Its `--as-of` date is illustrative above; use the date you want to inspect.
 
-## 6. Test a feature change and run evaluations
+## 5. Test a feature change and run evaluations
 
 ```sh
 uv run python -m unittest discover -s tests

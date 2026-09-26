@@ -8,14 +8,15 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
+from ..cards import load_cards
+
 def source_id(card: str, kind: str, digest: str) -> str:
     return f"{card}:{kind}:{digest}"
 
 
 def _import(path: str | Path, card: str, kind: str, *, url: str | None = None,
             root: str | Path | None = None) -> dict:
-    from ..prepare.benefits import CARDS
-    if card not in CARDS:
+    if card not in load_cards():
         raise ValueError("unsupported card ID")
     source = Path(path).expanduser().resolve(strict=True)
     if not source.is_file():

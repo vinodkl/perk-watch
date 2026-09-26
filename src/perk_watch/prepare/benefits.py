@@ -9,11 +9,9 @@ from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from ..staging.raw_data import source_id
+from ..cards import load_cards
 
-CARDS = {
-    "amex_platinum": "Amex Platinum",
-    "chase_sapphire_preferred": "Chase Sapphire Preferred",
-}
+CARDS = {card_id: details["display_name"] for card_id, details in load_cards().items()}
 FIELDS = ("amount_minor", "period", "eligible_merchants", "enrollment_required", "booking_required")
 PERIODS = {"monthly", "quarterly", "yearly", "account_year"}
 
