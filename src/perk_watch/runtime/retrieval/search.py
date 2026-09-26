@@ -1,17 +1,13 @@
 """Search prepared official benefit text with production embeddings."""
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import sqlite3
 from datetime import date
-from typing import TYPE_CHECKING
+from ...embeddings import EmbeddingProvider, content_hash, idea_hash
 
 _MIN_SCORE = 0.2
-
-if TYPE_CHECKING:
-    from .embeddings import EmbeddingProvider
 
 
 def _source_date(path: str) -> date | None:
@@ -22,14 +18,6 @@ def _source_date(path: str) -> date | None:
         return date(*map(int, match.groups()))
     except ValueError:
         return None
-
-
-def _content_hash(title: str, terms: str) -> str:
-    return hashlib.sha256(f"{title}\n{terms}".encode()).hexdigest()
-
-
-def _idea_hash(idea: str, excerpt: str) -> str:
-    return hashlib.sha256(f"{idea}\n{excerpt}".encode()).hexdigest()
 
 
 def _cosine(left: list[float], right: list[float]) -> float:
@@ -51,7 +39,7 @@ class BenefitSearch:
 
     def _provider(self) -> EmbeddingProvider:
         if self.embedder is None:
-            from .embeddings import OpenAIEmbeddingProvider
+            from ...embeddings import OpenAIEmbeddingProvider
             self.embedder = OpenAIEmbeddingProvider()
         return self.embedder
 
@@ -86,16 +74,11 @@ class BenefitSearch:
 
         provider = self._provider()
         query_vector = provider.embed([question])[0]
-        missing = [row for row in candidates if row[8] is None or row[7] != provider.model
-                    or row[9] != _content_hash(row[3], row[4])]
-        missing_ids = {row[0] for row in missing}
-        generated = iter(provider.embed([f"{row[3]}\n{row[4]}" for row in missing])) if missing else iter(())
         ranked = []
         for row in candidates:
-            if row[0] in missing_ids:
-                vector = next(generated)
-            else:
-                vector = json.loads(row[8])
+            if row[8] is None or row[7] != provider.model or row[9] != content_hash(row[3], row[4]):
+                continue
+            vector = json.loads(row[8])
             score = _cosine(query_vector, vector)
             if score >= _MIN_SCORE:
                 ranked.append((score, row))
@@ -115,7 +98,7 @@ class CommunitySearch:
 
     def _provider(self) -> EmbeddingProvider:
         if self.embedder is None:
-            from .embeddings import OpenAIEmbeddingProvider
+            from ...embeddings import OpenAIEmbeddingProvider
             self.embedder = OpenAIEmbeddingProvider()
         return self.embedder
 
@@ -141,12 +124,11 @@ class CommunitySearch:
             return []
         provider = self._provider()
         query_vector = provider.embed([question])[0]
-        missing = [row for row in rows if row[10] is None or row[9] != provider.model
-                   or row[11] != _idea_hash(row[5], row[6])]
-        generated = iter(provider.embed([f"{row[5]}\n{row[6]}" for row in missing])) if missing else iter(())
         ranked = []
         for row in rows:
-            vector = next(generated) if row in missing else json.loads(row[10])
+            if row[10] is None or row[9] != provider.model or row[11] != idea_hash(row[5], row[6]):
+                continue
+            vector = json.loads(row[10])
             score = _cosine(query_vector, vector)
             if score >= _MIN_SCORE:
                 ranked.append((score, row))
@@ -159,39 +141,6 @@ class CommunitySearch:
 
 def search_community_ideas(db: sqlite3.Connection, question: str, **filters: object) -> list[dict[str, object]]:
     return CommunitySearch(db, filters.pop("embedder", None)).search(question, **filters)
-
-
-def build_community_embeddings(db: sqlite3.Connection, embedder: EmbeddingProvider,
-                               card_id: str | None = None) -> int:
-    query = ("SELECT idea_id, idea, excerpt FROM community_ideas WHERE card_id = ? ORDER BY idea_id"
-             if card_id else "SELECT idea_id, idea, excerpt FROM community_ideas ORDER BY idea_id")
-    rows = db.execute(query, (card_id,) if card_id else ()).fetchall()
-    vectors = embedder.embed([f"{idea}\n{excerpt}" for _, idea, excerpt in rows]) if rows else []
-    if len(vectors) != len(rows):
-        raise ValueError("embedding provider returned the wrong number of vectors")
-    for (idea_id, idea, excerpt), vector in zip(rows, vectors):
-        db.execute("INSERT OR REPLACE INTO community_embeddings VALUES (?, ?, ?, ?, ?)",
-                   (idea_id, embedder.model, len(vector), json.dumps(vector), _idea_hash(idea, excerpt)))
-    return len(rows)
-
-
-def build_benefit_embeddings(db: sqlite3.Connection, embedder: EmbeddingProvider,
-                             card_id: str | None = None) -> int:
-    """Generate and persist embeddings for prepared benefits."""
-    if card_id:
-        rows = db.execute("SELECT benefit_id, title, terms FROM benefits WHERE card_id = ? ORDER BY benefit_id",
-                          (card_id,)).fetchall()
-    else:
-        rows = db.execute("SELECT benefit_id, title, terms FROM benefits ORDER BY benefit_id").fetchall()
-    if not rows:
-        return 0
-    vectors = embedder.embed([f"{title}\n{terms}" for _, title, terms in rows])
-    if len(vectors) != len(rows):
-        raise ValueError("embedding provider returned the wrong number of vectors")
-    for (benefit_id, title, terms), vector in zip(rows, vectors):
-        db.execute("INSERT OR REPLACE INTO benefit_embeddings VALUES (?, ?, ?, ?, ?)",
-                   (benefit_id, embedder.model, len(vector), json.dumps(vector), _content_hash(title, terms)))
-    return len(rows)
 
 
 def search_benefits(db: sqlite3.Connection, question: str, **filters: object) -> list[dict[str, object]]:

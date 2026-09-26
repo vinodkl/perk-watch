@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1] / "evals"))
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from fixture import open_fixture
-from perk_watch.calculations import calculate_benefit
+from perk_watch.runtime.calculations import calculate_benefit
 
 
 class EvaluationFixtureTests(unittest.TestCase):

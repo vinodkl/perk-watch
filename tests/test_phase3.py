@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
-from perk_watch.agent import answer_with_db
+from perk_watch.runtime.agent import answer_with_db
 
 
 class FakeClient:
@@ -61,8 +61,8 @@ class Phase3Tests(unittest.TestCase):
             response(calls=[tool_call("evaluate_benefits", {"benefit_id": "missing"})]),
             response(select(1)),
         ])
-        with patch("perk_watch.agent.search_benefits", return_value=search_result()), \
-             patch("perk_watch.agent.calculate_benefit", side_effect=missing_benefit):
+        with patch("perk_watch.runtime.tools.search_benefits", return_value=search_result()), \
+             patch("perk_watch.runtime.tools.calculate_benefit", side_effect=missing_benefit):
             result = answer_with_db(sqlite3.connect(":memory:"), "check benefit", client=client)
         self.assertIn('"reason": "benefit was not found"', result)
 
@@ -83,8 +83,8 @@ class Phase3Tests(unittest.TestCase):
             response(calls=[tool_call("evaluate_benefits", {"benefit_id": "missing"}, "call-2")]),
             response(select(1)),
         ])
-        with patch("perk_watch.agent.search_benefits", return_value=search_result()), \
-             patch("perk_watch.agent.calculate_benefit", side_effect=missing_benefit):
+        with patch("perk_watch.runtime.tools.search_benefits", return_value=search_result()), \
+             patch("perk_watch.runtime.tools.calculate_benefit", side_effect=missing_benefit):
             result = answer_with_db(sqlite3.connect(":memory:"), "check", client=client)
         self.assertIn("Benefit calculation", result)
         self.assertTrue(any("repeated identical tool call" in message["content"]
@@ -97,8 +97,8 @@ class Phase3Tests(unittest.TestCase):
             response(calls=[tool_call("evaluate_benefits", {"benefit_id": "missing"})]),
             response('{"evidence_indices": [1], "answer": "You have $500 remaining."}'),
         ])
-        with patch("perk_watch.agent.search_benefits", return_value=search_result()), \
-             patch("perk_watch.agent.calculate_benefit", side_effect=missing_benefit):
+        with patch("perk_watch.runtime.tools.search_benefits", return_value=search_result()), \
+             patch("perk_watch.runtime.tools.calculate_benefit", side_effect=missing_benefit):
             result = answer_with_db(sqlite3.connect(":memory:"), "check", client=client)
         self.assertIn("Benefit calculation", result)
         self.assertNotIn("$500 remaining", result)
@@ -117,8 +117,8 @@ class Phase3Tests(unittest.TestCase):
         ])
         calculated = {"benefit_id": "b1", "status": "available", "remaining_amount_minor": 2500,
                       "deadline": "2025-01-31", "supporting_transaction_ids": ["tx1"]}
-        with patch("perk_watch.agent.search_benefits", return_value=search_result("b1")), \
-             patch("perk_watch.agent.calculate_benefit", return_value=calculated):
+        with patch("perk_watch.runtime.tools.search_benefits", return_value=search_result("b1")), \
+             patch("perk_watch.runtime.tools.calculate_benefit", return_value=calculated):
             result = answer_with_db(db, "what transaction supports this?", client=client)
         self.assertIn('"transaction_id": "tx1"', result)
         self.assertIn('"amount_minor": 2500', result)
@@ -140,7 +140,7 @@ class Phase3Tests(unittest.TestCase):
         found = [{"benefit_id": "b1", "source_reference": {"source_id": "s1", "path": "terms.pdf"},
                   "text": "Official benefit terms"}]
         client = FakeClient([response(calls=[tool_call("search_benefits", {"question": "credit"})])])
-        with patch("perk_watch.agent.search_benefits", return_value=found):
+        with patch("perk_watch.runtime.tools.search_benefits", return_value=found):
             result = answer_with_db(sqlite3.connect(":memory:"), "check", client=client, max_calls=1)
         self.assertIn("Partial results", result)
         self.assertIn("Official benefit search", result)
@@ -153,8 +153,8 @@ class Phase3Tests(unittest.TestCase):
         ])
         result = {"benefit_id": "b1", "status": "available", "remaining_amount_minor": 5000,
                   "deadline": "2025-12-31", "supporting_transaction_ids": []}
-        with patch("perk_watch.agent.search_benefits", return_value=search_result("b1")), \
-             patch("perk_watch.agent.calculate_benefit", return_value=result):
+        with patch("perk_watch.runtime.tools.search_benefits", return_value=search_result("b1")), \
+             patch("perk_watch.runtime.tools.calculate_benefit", return_value=result):
             result_text = answer_with_db(sqlite3.connect(":memory:"), "how much remains?", client=client)
         self.assertIn('"remaining_amount_minor": 5000', result_text)
         self.assertIn('"deadline": "2025-12-31"', result_text)
@@ -165,7 +165,7 @@ class Phase3Tests(unittest.TestCase):
             response(calls=[tool_call("search_benefits", {"question": "credit"})]),
             response(select(99)),
         ])
-        with patch("perk_watch.agent.search_benefits", return_value=found):
+        with patch("perk_watch.runtime.tools.search_benefits", return_value=found):
             result = answer_with_db(sqlite3.connect(":memory:"), "credit", client=client)
         self.assertIn('"source_id": "s1"', result)
 
@@ -176,8 +176,8 @@ class Phase3Tests(unittest.TestCase):
             response(calls=[tool_call("evaluate_benefits", {"benefit_id": "b1"})]),
             response(select(1)),
         ])
-        with patch("perk_watch.agent.search_benefits", return_value=found), \
-             patch("perk_watch.agent.calculate_benefit", return_value={"benefit_id": "b1", "status": "available"}):
+        with patch("perk_watch.runtime.tools.search_benefits", return_value=found), \
+             patch("perk_watch.runtime.tools.calculate_benefit", return_value={"benefit_id": "b1", "status": "available"}):
             result = answer_with_db(sqlite3.connect(":memory:"), "how much remains?", client=client)
         self.assertIn("Official benefit search", result)
         self.assertIn('"source_id": "s1"', result)
@@ -189,7 +189,7 @@ class Phase3Tests(unittest.TestCase):
             response(calls=[tool_call("search_benefits", {"question": "travel credit"})]),
             response(select(0)),
         ])
-        with patch("perk_watch.agent.search_benefits", return_value=found):
+        with patch("perk_watch.runtime.tools.search_benefits", return_value=found):
             result = answer_with_db(sqlite3.connect(":memory:"), "travel credit", client=client)
         self.assertIn("Official benefit search", result)
         self.assertIn('"source_id": "s1"', result)

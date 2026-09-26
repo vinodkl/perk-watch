@@ -1,7 +1,7 @@
 """Ask a question about prepared PerkWatch data."""
 import argparse
 
-from perk_watch.app import answer
+from perk_watch.runtime.app import answer
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("question", nargs="+", help="question about your card benefits")

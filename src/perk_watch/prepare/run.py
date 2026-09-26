@@ -9,10 +9,11 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .benefits import CARDS, load_benefits
+from ..staging.raw_data import source_id
 from .community import load_ideas
 from .credits import match_credits
 from .merchants import match_all
-from ..search import build_benefit_embeddings, build_community_embeddings
+from .rag_search_index import build_benefit_embeddings, build_community_embeddings
 from .storage import connect, replace_card_data
 from .transactions import load_transactions
 
@@ -85,7 +86,7 @@ def _sources(path: Path) -> list[dict[str, Any]]:
     result = []
     for row in document.get("sources", []):
         row = dict(row)
-        row["source_id"] = row.get("source_id") or f"{row['card_id']}:{row['kind']}:{row['content_sha256']}"
+        row["source_id"] = row.get("source_id") or source_id(row["card_id"], row["kind"], row["content_sha256"])
         result.append(row)
     return result
 

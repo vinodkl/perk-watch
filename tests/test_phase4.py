@@ -5,9 +5,11 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
-from perk_watch.agent import _render, _tool_definitions, EvidenceSelection, answer_with_db
+from perk_watch.runtime.agent import _render, EvidenceSelection, answer_with_db
+from perk_watch.runtime.tools import definitions as _tool_definitions
 from perk_watch.prepare.storage import connect
-from perk_watch.search import CommunitySearch, build_community_embeddings
+from perk_watch.runtime.retrieval.search import CommunitySearch
+from perk_watch.prepare.rag_search_index import build_community_embeddings
 
 
 class FakeEmbedder:
@@ -71,7 +73,7 @@ class Phase4Tests(unittest.TestCase):
                 import json
                 self.assertEqual(json.loads(tool_message["content"])[0]["evidence_index"], 0)
                 return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"evidence_indices": [0]}', tool_calls=[]))])
-        with patch("perk_watch.agent.search_community_ideas", return_value=[{"idea": "Book early", "source_url": "https://reddit.com/x", "source_date": "2026-01-01"}]):
+        with patch("perk_watch.runtime.tools.search_community_ideas", return_value=[{"idea": "Book early", "source_url": "https://reddit.com/x", "source_date": "2026-01-01"}]):
             result = answer_with_db(self.db, "hotel ideas?", client=Client())
         self.assertIn("Community suggestions", result)
 
@@ -86,7 +88,7 @@ class Phase4Tests(unittest.TestCase):
                     SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"evidence_indices": []}', tool_calls=[]))]),
                 ])
                 self.chat = SimpleNamespace(completions=SimpleNamespace(create=lambda **_: next(self.replies)))
-        with patch("perk_watch.agent.search_community_ideas", side_effect=RuntimeError("offline")):
+        with patch("perk_watch.runtime.tools.search_community_ideas", side_effect=RuntimeError("offline")):
             result = answer_with_db(self.db, "hotel ideas?", client=Client())
         self.assertEqual(result, "No matching evidence was found in prepared data.")
 

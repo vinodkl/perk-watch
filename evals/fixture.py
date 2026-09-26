@@ -7,6 +7,19 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from perk_watch.prepare.storage import SCHEMA
+from perk_watch.prepare.rag_search_index import build_benefit_embeddings, build_community_embeddings
+
+
+class FixtureEmbedder:
+    """Deterministic word-vector provider; no external embedding calls."""
+    model = "fixture-word-count-v1"
+    words = ("airline", "fee", "credit", "travel", "hotel", "purchase", "monthly",
+             "dining", "quarterly", "yearly", "calendar", "account", "year", "reset",
+             "refund", "transaction", "merchant", "community", "suggestion", "eligible",
+             "incidental", "unknown", "terms", "benefit", "cover", "booking")
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[float(text.lower().count(word)) for word in self.words] for text in texts]
 
 
 def build_fixture(db: sqlite3.Connection) -> sqlite3.Connection:
@@ -55,6 +68,9 @@ def build_fixture(db: sqlite3.Connection) -> sqlite3.Connection:
         "fixture:idea-1", "fixture:amex", "fixture:travel-credit",
         "Consider using the travel credit for an eligible hotel stay.", "Synthetic community paraphrase.",
         "https://example.test/community/1", "synthetic-v1", "2026-09-01"))
+    embedder = FixtureEmbedder()
+    build_benefit_embeddings(db, embedder)
+    build_community_embeddings(db, embedder)
     db.commit()
     return db
 

@@ -1,11 +1,20 @@
 """Production embedding provider for official benefit search."""
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 from typing import Protocol
 
 from .privacy import redact_pii
+
+
+def content_hash(title: str, terms: str) -> str:
+    return hashlib.sha256(f"{title}\n{terms}".encode()).hexdigest()
+
+
+def idea_hash(idea: str, excerpt: str) -> str:
+    return hashlib.sha256(f"{idea}\n{excerpt}".encode()).hexdigest()
 
 
 class EmbeddingProvider(Protocol):

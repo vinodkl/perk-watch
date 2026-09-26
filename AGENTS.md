@@ -11,7 +11,7 @@ Read `.agents/skills/local-card-data-staging/SKILL.md` before collecting or impo
 - Use `PERKWATCH_DATA_DIR`; the local default root is `data/real/`.
 - Keep real benefits, statements, CSV/OFX exports, credentials, databases, search files, and generated output out of git.
 - User login, MFA, CAPTCHA, account selection, and consent remain manual.
-- Imports run through `scripts/prepare_data.py`, so hashes and source records are written.
+- Stage user-supplied files with `perk_watch.staging.raw_data` so hashes and source records are written; then run `scripts/prepare_data.py` to normalize and index them.
 - Never replace tracked evaluation examples with real data.
 - During LLM merchant matching, send only a cleaned merchant description and a fixed merchant list. Keep amounts, dates, account details, filenames, and complete transaction rows local. Save uncertain results as `unknown`.
 

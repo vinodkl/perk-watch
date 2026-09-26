@@ -38,7 +38,7 @@ allowed to differ, but the privacy boundary does not.
 6. Import files with the stable card ID:
 
    ```python
-   from perk_watch.raw_data import import_benefit_guide, import_transactions
+   from perk_watch.staging.raw_data import import_benefit_guide, import_transactions
 
    import_benefit_guide(guide_path, card="amex_platinum", url=issuer_url)
    import_transactions(export_path, card="amex_platinum")

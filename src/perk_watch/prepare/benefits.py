@@ -8,6 +8,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from ..staging.raw_data import source_id
+
 CARDS = {
     "amex_platinum": "Amex Platinum",
     "chase_sapphire_preferred": "Chase Sapphire Preferred",
@@ -16,13 +18,9 @@ FIELDS = ("amount_minor", "period", "eligible_merchants", "enrollment_required",
 PERIODS = {"monthly", "quarterly", "yearly", "account_year"}
 
 
-def source_id(card_id: str, path: Path) -> str:
-    return f"{card_id}:benefits:{hashlib.sha256(path.read_bytes()).hexdigest()}"
-
-
 def load_benefits(card_id: str, path: Path, extractor: Callable[[str, str], Any] | None = None) -> tuple[list[dict[str, Any]], dict[str, int]]:
     text = path.read_text(encoding="utf-8")
-    source = source_id(card_id, path)
+    source = source_id(card_id, "benefits", hashlib.sha256(path.read_bytes()).hexdigest())
     structured = _json_items(text)
     raw = _structured_document(text)
     if raw is None:

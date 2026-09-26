@@ -9,10 +9,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from perk_watch.prepare.storage import connect
-from perk_watch.calculations import calculate_benefit
+from perk_watch.runtime.calculations import calculate_benefit
 from perk_watch.embeddings import OpenAIEmbeddingProvider
 from perk_watch.privacy import redact_pii
-from perk_watch.search import BenefitSearch, build_benefit_embeddings
+from perk_watch.runtime.retrieval.search import BenefitSearch
+from perk_watch.prepare.rag_search_index import build_benefit_embeddings
 
 
 class FakeEmbedder:
@@ -84,12 +85,31 @@ class Phase2Test(unittest.TestCase):
         self.assertEqual(stored, ("test-embedding", 6))
         self.assertEqual(BenefitSearch(self.db, self.embedder).search("travel credit")[0]["benefit_id"], "amex_monthly")
 
+    def test_search_skips_missing_or_stale_vectors_without_reembedding_text(self):
+        self._benefit()
+        calls = []
+        embed = self.embedder.embed
+        def recording(texts):
+            calls.extend(texts)
+            return embed(texts)
+        self.embedder.embed = recording
+        self.assertEqual(BenefitSearch(self.db, self.embedder).search("travel credit"), [])
+        build_benefit_embeddings(self.db, self.embedder)
+        calls.clear()
+        self.assertEqual(BenefitSearch(self.db, self.embedder).search("travel credit")[0]["benefit_id"], "amex_monthly")
+        self.assertEqual(calls, ["travel credit"])
+        self.db.execute("UPDATE benefits SET terms = ? WHERE benefit_id = ?", ("Changed travel terms", "amex_monthly"))
+        calls.clear()
+        self.assertEqual(BenefitSearch(self.db, self.embedder).search("travel credit"), [])
+        self.assertEqual(calls, ["travel credit"])
+
     def test_search_returns_source_and_respects_card_and_date_filters(self):
         self.db.execute("INSERT INTO benefits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         ("old_benefit", "amex", "Travel credit", 100, "monthly", "uber", None, None, "Old travel terms", "old"))
         self.db.execute("INSERT INTO benefits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         ("new_benefit", "amex", "Travel credit", 100, "monthly", "uber", None, None, "New travel terms", "new"))
         self.db.commit()
+        build_benefit_embeddings(self.db, self.embedder)
         results = BenefitSearch(self.db, self.embedder).search("travel credit", card_id="amex", as_of="2025-12-31")
         self.assertEqual([result["benefit_id"] for result in results], ["old_benefit"])
         self.assertEqual(results[0]["source_reference"]["source_id"], "old")
@@ -99,6 +119,7 @@ class Phase2Test(unittest.TestCase):
         self.db.execute("UPDATE benefits SET title = ?, terms = ? WHERE benefit_id = ?",
                         ("Monthly rides credit", "Reimbursement for transportation each month", "rides"))
         self.db.commit()
+        build_benefit_embeddings(self.db, self.embedder)
         results = BenefitSearch(self.db, self.embedder).search("travel credit for rides")
         self.assertEqual(results[0]["benefit_id"], "rides")
         self.assertEqual(BenefitSearch(self.db, self.embedder).search("dining at restaurants"), [])

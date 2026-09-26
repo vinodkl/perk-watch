@@ -207,25 +207,33 @@ scripts/
   ask.py
 
 src/perk_watch/
+  staging/
+    raw_data.py
   prepare/
     run.py
-    extract_benefits.py
-    import_transactions.py
-    prepare_community.py
-    build_searches.py
-  storage.py
-  benefits.py
-  search.py
-  tools.py
-  agent.py
-  app.py
+    benefits.py
+    transactions.py
+    community.py
+    storage.py
+    rag_search_index.py
+  runtime/
+    app.py
+    agent.py
+    tools.py
+    calculations.py
+    retrieval/
+      search.py
+  embeddings.py
+  privacy.py
 
 evals/
   cases.json
+  fixture.py
+  harness.py
   run.py
 ```
 
-`v2/scripts/prepare_data.py` parses command-line arguments and calls `prepare.run()`. Files under `prepare/` convert collected files into local data. The top-level `benefits.py` and `search.py` are used while answering questions. `app.py` exposes an `answer(question)` function used by the command-line interface and later by an API.
+`scripts/prepare_data.py` calls `prepare.run()`. Staging registers manually collected files; preparation normalizes them and builds search vectors. Runtime retrieves stored evidence, calculates exact values, and answers through `runtime.app.answer(question)`. Evaluation runs cases through `evals/harness.py`.
 
 Clean code does not require one file per function. Each file owns one meaningful job. The project avoids generic helper folders, pass-through wrappers, and interfaces with only one implementation.
 
