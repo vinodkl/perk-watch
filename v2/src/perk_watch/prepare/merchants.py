@@ -5,6 +5,8 @@ import json
 import re
 from typing import Any, Callable, Iterable, Mapping, Optional
 
+from ..privacy import redact_pii
+
 MERCHANTS = ("airbnb", "doordash", "global entry", "lululemon", "nytimes", "uber", "whole foods")
 BatchChooser = Callable[[tuple[str, ...], tuple[str, ...]], Mapping[str, Optional[str]]]
 
@@ -40,13 +42,15 @@ class OpenAIMerchantChooser:
         result = {description: None for description in descriptions}
         for start in range(0, len(descriptions), self.batch_size):
             batch = descriptions[start:start + self.batch_size]
+            outbound = tuple(redact_pii(description) for description in batch)
+            outbound_to_original = dict(zip(outbound, batch))
             response = self.client.chat.completions.create(
                 model=self.model,
                 temperature=0,
                 response_format={"type": "json_object"},
                 messages=[
                     {"role": "system", "content": "Match each cleaned transaction merchant description to exactly one supplied merchant, or null. Return JSON {matches:[{description,merchant}]}. Never invent a merchant."},
-                    {"role": "user", "content": json.dumps({"descriptions": batch, "merchants": merchants})},
+                    {"role": "user", "content": json.dumps({"descriptions": outbound, "merchants": merchants})},
                 ],
             )
             try:
@@ -57,8 +61,9 @@ class OpenAIMerchantChooser:
                 if not isinstance(row, dict):
                     continue
                 description, merchant = row.get("description"), row.get("merchant")
-                if description in result and merchant in merchants:
-                    result[description] = merchant
+                original = outbound_to_original.get(description)
+                if original in result and merchant in merchants:
+                    result[original] = merchant
         return result
 
 

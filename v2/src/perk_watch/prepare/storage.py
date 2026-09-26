@@ -38,6 +38,11 @@ CREATE TABLE IF NOT EXISTS community_ideas (
   benefit_id TEXT NOT NULL, idea TEXT NOT NULL, excerpt TEXT NOT NULL,
   source_url TEXT NOT NULL, terms_version TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS benefit_embeddings (
+  benefit_id TEXT PRIMARY KEY REFERENCES benefits(benefit_id),
+  model TEXT NOT NULL, dimensions INTEGER NOT NULL, vector_json TEXT NOT NULL,
+  content_sha256 TEXT NOT NULL
+);
 """
 
 
@@ -56,6 +61,7 @@ def replace_card_data(db: sqlite3.Connection, card_id: str, display_name: str,
     db.execute("DELETE FROM credit_matches WHERE transaction_id IN (SELECT transaction_id FROM transactions WHERE card_id = ?)", (card_id,))
     db.execute("DELETE FROM merchant_matches WHERE transaction_id IN (SELECT transaction_id FROM transactions WHERE card_id = ?)", (card_id,))
     db.execute("DELETE FROM transactions WHERE card_id = ?", (card_id,))
+    db.execute("DELETE FROM benefit_embeddings WHERE benefit_id IN (SELECT benefit_id FROM benefits WHERE card_id = ?)", (card_id,))
     db.execute("DELETE FROM benefits WHERE card_id = ?", (card_id,))
     db.execute("DELETE FROM community_ideas WHERE card_id = ?", (card_id,))
     db.execute("DELETE FROM sources WHERE card_id = ?", (card_id,))

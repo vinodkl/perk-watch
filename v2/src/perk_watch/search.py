@@ -1,13 +1,17 @@
-"""Search prepared official benefit text without touching transaction data."""
+"""Search prepared official benefit text with production embeddings."""
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import sqlite3
 from datetime import date
+from typing import TYPE_CHECKING
 
+_MIN_SCORE = 0.2
 
-def _words(text: str) -> set[str]:
-    return {word for word in re.findall(r"[a-z0-9]+", text.lower()) if len(word) > 1}
+if TYPE_CHECKING:
+    from .embeddings import EmbeddingProvider
 
 
 def _source_date(path: str) -> date | None:
@@ -20,11 +24,32 @@ def _source_date(path: str) -> date | None:
         return None
 
 
-class BenefitSearch:
-    """Small local ranked search over official benefit text."""
+def _content_hash(title: str, terms: str) -> str:
+    return hashlib.sha256(f"{title}\n{terms}".encode()).hexdigest()
 
-    def __init__(self, db: sqlite3.Connection):
+
+def _cosine(left: list[float], right: list[float]) -> float:
+    if len(left) != len(right):
+        raise ValueError("embedding dimensions do not match")
+    left_norm = sum(value * value for value in left) ** 0.5
+    right_norm = sum(value * value for value in right) ** 0.5
+    if not left_norm or not right_norm:
+        return 0.0
+    return sum(a * b for a, b in zip(left, right)) / (left_norm * right_norm)
+
+
+class BenefitSearch:
+    """Search official benefits using stored OpenAI embeddings."""
+
+    def __init__(self, db: sqlite3.Connection, embedder: EmbeddingProvider | None = None):
         self.db = db
+        self.embedder = embedder
+
+    def _provider(self) -> EmbeddingProvider:
+        if self.embedder is None:
+            from .embeddings import OpenAIEmbeddingProvider
+            self.embedder = OpenAIEmbeddingProvider()
+        return self.embedder
 
     def search(self, question: str, *, card_id: str | None = None,
                benefit_id: str | None = None, as_of: date | str | None = None,
@@ -42,26 +67,59 @@ class BenefitSearch:
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self.db.execute(
             f"SELECT b.benefit_id, b.card_id, c.display_name, b.title, b.terms, "
-            f"b.source_id, s.path FROM benefits b JOIN cards c ON c.card_id = b.card_id "
-            f"JOIN sources s ON s.source_id = b.source_id {where}", params).fetchall()
-        query = _words(question)
-        ranked = []
+            f"b.source_id, s.path, e.model, e.vector_json, e.content_sha256 "
+            f"FROM benefits b JOIN cards c ON c.card_id = b.card_id "
+            f"JOIN sources s ON s.source_id = b.source_id "
+            f"LEFT JOIN benefit_embeddings e ON e.benefit_id = b.benefit_id {where}", params).fetchall()
+        candidates = []
         for row in rows:
             source_date = _source_date(row[6])
             if cutoff and source_date and source_date > cutoff:
                 continue
-            words = _words(f"{row[3]} {row[4]}")
-            overlap = len(query & words)
-            if not overlap:
-                continue
-            # IDF keeps common words from dominating the small local corpus.
-            ranked.append((overlap / (1 + len(words)), row))
+            candidates.append(row)
+        if not candidates:
+            return []
+
+        provider = self._provider()
+        query_vector = provider.embed([question])[0]
+        missing = [row for row in candidates if row[8] is None or row[7] != provider.model
+                    or row[9] != _content_hash(row[3], row[4])]
+        missing_ids = {row[0] for row in missing}
+        generated = iter(provider.embed([f"{row[3]}\n{row[4]}" for row in missing])) if missing else iter(())
+        ranked = []
+        for row in candidates:
+            if row[0] in missing_ids:
+                vector = next(generated)
+            else:
+                vector = json.loads(row[8])
+            score = _cosine(query_vector, vector)
+            if score >= _MIN_SCORE:
+                ranked.append((score, row))
         ranked.sort(key=lambda item: (-item[0], item[1][2], item[1][0]))
         return [{"benefit_id": row[0], "card_id": row[1], "card": row[2],
-                 "title": row[3], "text": row[4],
+                 "title": row[3], "text": row[4], "score": score,
                  "source_reference": {"source_id": row[5], "path": row[6]}}
-                for _, row in ranked[:limit]]
+                for score, row in ranked[:limit]]
+
+
+def build_benefit_embeddings(db: sqlite3.Connection, embedder: EmbeddingProvider,
+                             card_id: str | None = None) -> int:
+    """Generate and persist embeddings for prepared benefits."""
+    if card_id:
+        rows = db.execute("SELECT benefit_id, title, terms FROM benefits WHERE card_id = ? ORDER BY benefit_id",
+                          (card_id,)).fetchall()
+    else:
+        rows = db.execute("SELECT benefit_id, title, terms FROM benefits ORDER BY benefit_id").fetchall()
+    if not rows:
+        return 0
+    vectors = embedder.embed([f"{title}\n{terms}" for _, title, terms in rows])
+    if len(vectors) != len(rows):
+        raise ValueError("embedding provider returned the wrong number of vectors")
+    for (benefit_id, title, terms), vector in zip(rows, vectors):
+        db.execute("INSERT OR REPLACE INTO benefit_embeddings VALUES (?, ?, ?, ?, ?)",
+                   (benefit_id, embedder.model, len(vector), json.dumps(vector), _content_hash(title, terms)))
+    return len(rows)
 
 
 def search_benefits(db: sqlite3.Connection, question: str, **filters: object) -> list[dict[str, object]]:
-    return BenefitSearch(db).search(question, **filters)
+    return BenefitSearch(db, filters.pop("embedder", None)).search(question, **filters)

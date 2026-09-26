@@ -12,12 +12,14 @@ from .benefits import CARDS, load_benefits
 from .community import load_ideas
 from .credits import match_credits
 from .merchants import match_all
+from ..search import build_benefit_embeddings
 from .storage import connect, replace_card_data
 from .transactions import load_transactions
 
 
 def prepare(root: str | Path, *, extractor: Callable[[str, str], Any] | None = None,
-            merchant_chooser: Callable[[tuple[str, ...], tuple[str, ...]], dict[str, str | None]] | None = None) -> dict[str, Any]:
+            merchant_chooser: Callable[[tuple[str, ...], tuple[str, ...]], dict[str, str | None]] | None = None,
+            embedder: Any | None = None) -> dict[str, Any]:
     root = Path(root).expanduser()
     raw = root / "raw"
     prepared = root / "prepared"
@@ -63,6 +65,8 @@ def prepare(root: str | Path, *, extractor: Callable[[str, str], Any] | None = N
                            "credit_matches": len(credit_matches), "transactions": len(transactions), "benefits": len(benefit_rows)})
             replace_card_data(db, card_id, display_name, _source_rows(card_id, root, sources), benefit_rows,
                               transactions, matches, credit_matches, ideas)
+            if embedder:
+                counts["embeddings"] = build_benefit_embeddings(db, embedder, card_id)
             report["cards"][card_id] = dict(sorted(counts.items()))
         db.commit()
     finally:

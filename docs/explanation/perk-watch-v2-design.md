@@ -56,7 +56,7 @@ Preparation performs these jobs:
 
 The LLM may extract a benefit amount, time period, eligible merchants, enrollment requirement, and booking requirement. An extracted result is accepted automatically only when it matches the required JSON format, contains valid values, and points back to supporting benefit text. Missing or unclear values are stored as `unknown`.
 
-Merchant matching sends only a cleaned merchant description and a fixed list of merchant names to the LLM. Amounts, dates, account details, filenames, and complete transaction rows stay local.
+Merchant matching sends only a cleaned merchant description and a fixed list of merchant names to the LLM. Amounts, dates, account details, filenames, and complete transaction rows stay local. Every outbound model boundary also applies the shared PII redactor to high-confidence email, phone, card-number, SSN, address, and URL patterns. Redaction changes only the outbound copy; original local data remains unchanged. Benefit amounts, dates, merchant names, and period terms are preserved because they are needed for extraction and retrieval.
 
 PerkWatch does not include a human review workflow. This keeps the project focused on retrieval, tools, and agent behavior. It also limits the claim: PerkWatch is an experimental assistant, not financial advice.
 
@@ -96,7 +96,7 @@ The benefit search returns official text that explains amounts, eligible purchas
 
 The community search returns source-linked ideas derived from public discussions. Preparation includes only ideas whose current-terms review found no known conflict. Every result includes its public link and is labeled as a suggestion rather than an official rule.
 
-The first version uses basic embedding search with filters for card and benefit. Rewording questions and reordering search results are later experiments. They are added only when evaluation shows that basic search misses useful results.
+V2 uses OpenAI `text-embedding-3-small` for official benefit search. Preparation batches benefit text and stores model-tagged vectors in local SQLite; runtime embeds the question and searches those vectors with cosine similarity. Card, benefit, and source-date filters remain normal SQLite/code filters. Transactions are never embedded. This sends prepared benefit text and search questions to OpenAI, which is an explicit privacy tradeoff and must be accepted before enabling the provider. Rewording questions and reordering search results are later experiments.
 
 ## CLI agent
 

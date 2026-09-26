@@ -17,6 +17,18 @@ The command hashes and versions benefit terms, normalizes and deduplicates
 transactions, rebuilds reviewed community snapshots, and writes one report.
 See [docs/local-data.md](docs/local-data.md).
 
+## V2 semantic benefit search
+
+V2 uses OpenAI `text-embedding-3-small` for official benefit search. The
+monthly preparation command batches and stores one embedding per prepared
+benefit in the local SQLite database. Runtime search embeds only the question,
+then ranks the stored benefit vectors with cosine similarity. Transactions are
+never embedded.
+
+Set `OPENAI_API_KEY` before preparing V2 data. This sends prepared benefit text
+and search questions to OpenAI, so use this mode only when that privacy boundary
+is acceptable. The hashed-vector prototype is not used by production V2.
+
 ## Slice 2 (VKU-16), deterministic benefit status
 
 `perk_watch.benefits` calculates all benefit periods, eligible transactions, remaining minor units, deadlines, and the four statuses without an LLM. Merchant resolution may supply canonical merchant facts, but it cannot calculate or override eligibility, dates, amounts, occurrence, remaining value, deadlines, or status. Missing enrollment, portal, anniversary, limit, or potentially eligible transaction evidence returns `indeterminate` with reason and evidence IDs.

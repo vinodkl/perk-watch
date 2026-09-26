@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from ..privacy import redact_pii
+
 
 class OpenAIBenefitExtractor:
     def __init__(self, client: Any, model: str = "gpt-4o-mini") -> None:
@@ -26,7 +28,7 @@ class OpenAIBenefitExtractor:
                 "Do not browse, use outside knowledge, or calculate transaction usage. "
                 "Preserve any supplied benefit_id and title. Return JSON only."
             )},
-                      {"role": "user", "content": f"Source reference: {source_ref}\\n\\n{text}"}],
+                      {"role": "user", "content": f"Source reference: {source_ref}\\n\\n{redact_pii(text)}"}],
         )
         value = json.loads(response.choices[0].message.content)
         return value.get("benefits", []) if isinstance(value, dict) else []
