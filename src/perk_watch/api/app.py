@@ -5,7 +5,7 @@ import json
 import os
 import sqlite3
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Iterator
 
@@ -62,8 +62,39 @@ def create_app(root: str | Path | None = None) -> FastAPI:
                 raise HTTPException(status_code=404, detail="benefit not found")
             calculation = calculate_benefit(db, benefit_id, as_of=as_of)
             transaction_ids = list(calculation["supporting_transaction_ids"])
-            return {"benefit_id": benefit_id,
-                    "transactions": _transactions(db, benefit_id, transaction_ids)}
+            benefit_row = db.execute(
+                "SELECT card_id, period FROM benefits WHERE benefit_id = ?", (benefit_id,)
+            ).fetchone()
+            card_id, period = benefit_row
+            through = db.execute("SELECT MAX(posted_date) FROM transactions WHERE card_id = ?",
+                                 (card_id,)).fetchone()[0]
+            bounds = _evidence_bounds(period, as_of or date.today())
+            not_counted = []
+            if bounds:
+                not_counted = _not_counted_transactions(
+                    db, card_id, benefit_id, *bounds, set(transaction_ids))
+            return {"benefit_id": benefit_id, "statements_through": through,
+                    "period_start": bounds[0].isoformat() if bounds else None,
+                    "period_end": bounds[1].isoformat() if bounds else calculation["deadline"],
+                    "calculation": calculation,
+                    "transactions": _transactions(db, benefit_id, transaction_ids),
+                    "not_counted": not_counted}
+
+    @app.get("/api/benefits/{benefit_id}/community")
+    def community(benefit_id: str) -> dict[str, object]:
+        with connection() as db:
+            if _benefit(db, benefit_id) is None:
+                raise HTTPException(status_code=404, detail="benefit not found")
+            rows = db.execute(
+                "SELECT idea_id, idea, excerpt, source_url, source_date "
+                "FROM community_ideas WHERE benefit_id = ? AND source_date <> '' "
+                "ORDER BY source_date DESC, idea_id",
+                (benefit_id,),
+            ).fetchall()
+            return {"benefit_id": benefit_id, "ideas": [
+                dict(zip(("idea_id", "idea", "excerpt", "source_url", "source_date"), row))
+                for row in rows
+            ]}
 
     return app
 
@@ -113,6 +144,44 @@ def _transactions(db: sqlite3.Connection, benefit_id: str,
         for row in rows
     }
     return [by_id[transaction_id] for transaction_id in transaction_ids if transaction_id in by_id]
+
+
+def _evidence_bounds(period: str | None, as_of: date | str) -> tuple[date, date] | None:
+    current = as_of if isinstance(as_of, date) else date.fromisoformat(as_of)
+    kind = (period or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if kind in {"monthly", "month"}:
+        start = current.replace(day=1)
+        next_month = date(start.year + (start.month == 12), start.month % 12 + 1, 1)
+        return start, next_month - timedelta(days=1)
+    if kind in {"quarterly", "quarter"}:
+        start = date(current.year, ((current.month - 1) // 3) * 3 + 1, 1)
+        month = start.month + 3
+        next_quarter = date(start.year + (month > 12), (month - 1) % 12 + 1, 1)
+        return start, next_quarter - timedelta(days=1)
+    if kind in {"yearly", "annual", "calendar_year", "year"}:
+        return date(current.year, 1, 1), date(current.year, 12, 31)
+    return None
+
+
+def _not_counted_transactions(db: sqlite3.Connection, card_id: str, benefit_id: str,
+                              start: date, end: date,
+                              counted_ids: set[str]) -> list[dict[str, object]]:
+    rows = db.execute(
+        "SELECT t.transaction_id, t.posted_date, t.description, t.amount_minor, "
+        "t.currency, t.merchant, mm.confidence, cm.benefit_id "
+        "FROM transactions t LEFT JOIN merchant_matches mm "
+        "ON mm.transaction_id = t.transaction_id LEFT JOIN credit_matches cm "
+        "ON cm.transaction_id = t.transaction_id WHERE t.card_id = ? "
+        "AND t.posted_date BETWEEN ? AND ? AND t.merchant IS NULL "
+        "ORDER BY t.posted_date, t.transaction_id",
+        (card_id, start.isoformat(), end.isoformat()),
+    ).fetchall()
+    return [{"transaction_id": row[0], "posted_date": row[1], "description": row[2],
+             "amount_minor": row[3], "currency": row[4], "merchant": row[5],
+             "matched_by": "issuer_credit" if row[7] == benefit_id
+             else f"merchant_{row[6]}" if row[6] in {"exact", "model"} else None,
+             "reason": "merchant eligibility is unknown"}
+            for row in rows if row[0] not in counted_ids]
 
 
 def _report(root: str | Path | None) -> dict[str, object]:

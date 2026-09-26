@@ -75,6 +75,19 @@ class Phase8Test(unittest.TestCase):
             params={"as_of": "2026-09-26"})
         self.assertEqual([row["transaction_id"] for row in transactions.json()["transactions"]],
                          ["fixture:travel-purchase"])
+        self.assertEqual(transactions.json()["period_start"], "2026-01-01")
+        self.assertEqual(transactions.json()["period_end"], "2026-12-31")
+        unclear = self.client.get(
+            "/api/benefits/fixture:unclear-credit/transactions",
+            params={"as_of": "2026-10-11"}).json()
+        self.assertEqual(unclear["not_counted"][0]["transaction_id"],
+                         "fixture:unknown-merchant")
+        self.assertEqual(unclear["not_counted"][0]["reason"],
+                         "merchant eligibility is unknown")
+        community = self.client.get("/api/benefits/fixture:travel-credit/community")
+        self.assertEqual(community.status_code, 200)
+        self.assertEqual(community.json()["ideas"][0]["source_date"], "2026-09-01")
+        self.assertEqual(self.client.get("/api/benefits/missing/community").status_code, 404)
         self.assertEqual(self.client.get("/api/benefits/missing").status_code, 404)
 
     def test_runtime_connection_is_read_only(self):

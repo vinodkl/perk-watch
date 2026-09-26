@@ -80,11 +80,11 @@ Show: on the demo root, `/api/briefing` returns one Act soon credit, a few Check
 
 Web only. Design: [briefing](perk-watch-v2-ui-app-briefing.png).
 
-- [ ] Header with an as-of pill driven by the `as_of` query parameter.
-- [ ] Act soon coupons with a tear-off stub and days-left stamp, Check yourself "?" tickets (one plain-language reason and one action each), and On track stubs stamped "USED" when exhausted.
-- [ ] Wallet column: the card stack, group counts, the Perks & protections entry, and the stale-statement warning. Per-card transaction ranges and the last preparation time come from `/api/status`.
-- [ ] Motion: amounts count up on load and the stamp lands once. Both are off under `prefers-reduced-motion`.
-- [ ] An empty state for data where nothing can be calculated. It groups the reasons and links to Admin rather than showing 63 identical cards.
+- [x] Header with an as-of pill driven by the `as_of` query parameter.
+- [x] Act soon coupons with a tear-off stub and days-left stamp, Check yourself "?" tickets (one plain-language reason and one action each), and On track stubs stamped "USED" when exhausted.
+- [x] Wallet column: the card stack, group counts, the Perks & protections entry, and the stale-statement warning. Per-card transaction ranges and the last preparation time come from `/api/status`.
+- [x] Motion: amounts count up on load and the stamp lands once. Both are off under `prefers-reduced-motion`.
+- [x] An empty state for data where nothing can be calculated. It groups the reasons and links to Admin rather than showing 63 identical cards.
 
 Show: demo narrative 0:30–1:15, the briefing on a date near a period boundary.
 
@@ -92,12 +92,12 @@ Show: demo narrative 0:30–1:15, the briefing on a date near a period boundary.
 
 Query-only additions to the API. No calculation change. Design: [evidence rail](perk-watch-v2-ui-app-evidence.png).
 
-- [ ] Route-backed rail (`?benefit=<id>`). The back button closes it, and the URL is shareable locally.
-- [ ] The tab reads "Receipts" on screen.
-- [ ] Official terms and source reference from the benefit row and `sources`, shown as fine print.
-- [ ] Receipt: amount per period, each counted credit or charge, the amount left, not-counted lines, period bounds, and the statements-through date.
-- [ ] Transactions with `matched_by` (`issuer_credit`, `merchant_exact`, `merchant_model`), from joining `credit_matches` and `merchant_matches` to the supporting IDs.
-- [ ] `GET /api/benefits/{benefit_id}/community`: current community ideas for that benefit by direct SQL, with no embedding call. Show them as a sticky note labeled "Not official terms", with source date and link.
+- [x] Route-backed rail (`?benefit=<id>`). The back button closes it, and the URL is shareable locally.
+- [x] The tab reads "Receipts" on screen.
+- [x] Official terms and source reference from the benefit row and `sources`, shown as fine print.
+- [x] Receipt: amount per period, each counted credit or charge, the amount left, not-counted lines, period bounds, and the statements-through date.
+- [x] Transactions with `matched_by` (`issuer_credit`, `merchant_exact`, `merchant_model`), from joining `credit_matches` and `merchant_matches` to the supporting IDs.
+- [x] `GET /api/benefits/{benefit_id}/community`: current community ideas for that benefit by direct SQL, with no embedding call. Show them as a sticky note labeled "Not official terms", with source date and link.
 
 Show: demo narrative 1:15–1:55 (evidence) and 1:55–2:25 (open a Check yourself item and show why the engine refuses to guess).
 
