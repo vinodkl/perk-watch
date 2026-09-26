@@ -11,7 +11,7 @@ from .search import search_benefits
 
 
 def database(root: str | Path | None = None) -> sqlite3.Connection:
-    data_root = Path(root or os.environ.get("PERKWATCH_DATA_DIR", "v2/data/real"))
+    data_root = Path(root or os.environ.get("PERKWATCH_DATA_DIR", "data/real"))
     path = data_root / "prepared" / "perkwatch.sqlite"
     if not path.exists():
         raise FileNotFoundError(f"prepared data not found: {path}")

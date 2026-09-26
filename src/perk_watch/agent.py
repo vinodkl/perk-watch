@@ -223,4 +223,7 @@ def answer_with_db(db: sqlite3.Connection, question: str, *, client=None,
                     metrics["retries"] = retries
                 if retries > max_retries:
                     return "I couldn't answer safely because a tool call failed or was invalid."
-    return "I couldn't finish within the tool-call limit."
+    partial = _render(evidence, _ground_selection(
+        evidence, EvidenceSelection(evidence_indices=list(range(len(evidence)))))
+    ) if evidence else "No usable evidence was collected."
+    return f"Partial results (tool-call limit reached; may be incomplete)\n\n{partial}"

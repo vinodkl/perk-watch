@@ -134,7 +134,17 @@ class Phase3Tests(unittest.TestCase):
         client = FakeClient([response(calls=[tool_call("not_a_tool", {}, "1")])])
         result = answer_with_db(sqlite3.connect(":memory:"), "check", client=client, max_calls=1)
         self.assertIn("tool-call limit", result)
+        self.assertIn("No usable evidence was collected.", result)
 
+    def test_call_limit_returns_evidence_already_collected(self):
+        found = [{"benefit_id": "b1", "source_reference": {"source_id": "s1", "path": "terms.pdf"},
+                  "text": "Official benefit terms"}]
+        client = FakeClient([response(calls=[tool_call("search_benefits", {"question": "credit"})])])
+        with patch("perk_watch.agent.search_benefits", return_value=found):
+            result = answer_with_db(sqlite3.connect(":memory:"), "check", client=client, max_calls=1)
+        self.assertIn("Partial results", result)
+        self.assertIn("Official benefit search", result)
+        self.assertIn("terms.pdf", result)
     def test_calculation_facts_must_be_in_tool_results(self):
         client = FakeClient([
             response(calls=[search_call()]),

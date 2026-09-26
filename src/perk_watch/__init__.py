@@ -1,1 +1,1 @@
-"""PerkWatch deterministic transaction components."""
+"""PerkWatch V2 application package."""

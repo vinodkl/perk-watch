@@ -1,90 +1,29 @@
 # PerkWatch
 
-## Local data
+PerkWatch is a local assistant that combines current card benefits, transactions, and public community ideas to answer questions about benefit usage. The design is described in [`docs/explanation/perk-watch-v2-design.md`](docs/explanation/perk-watch-v2-design.md).
 
-Skills manually collect three raw inputs for each card: issuer benefit guides,
-transaction exports, and sanitized public-community notes. They live under
-`PERKWATCH_DATA_DIR/raw/<card>/`; real data is never committed.
+## Structure
 
-One offline command converts all raw inputs into the linked local model under
-`PERKWATCH_DATA_DIR/prepared/`:
-
-```sh
-PYTHONPATH=src PERKWATCH_DATA_DIR=data/real python3 scripts/prepare_data.py
+```text
+src/             application code
+scripts/          command-line entry points
+evals/            evaluation cases and runner
+tests/            focused behavior tests
+data/real/        local-only collected and prepared data
 ```
 
-The command hashes and versions benefit terms, normalizes and deduplicates
-transactions, rebuilds reviewed community snapshots, and writes one report.
-See [docs/local-data.md](docs/local-data.md).
+Command files stay small; reusable code belongs under `src/perk_watch/`.
 
-## V2 semantic benefit search
+## Evaluation
 
-V2 uses OpenAI `text-embedding-3-small` for official benefit search. The
-monthly preparation command batches and stores one embedding per prepared
-benefit in the local SQLite database. Runtime search embeds only the question,
-then ranks the stored benefit vectors with cosine similarity. Transactions are
-never embedded.
+Run the synthetic evaluation from the repo root with `uv run python evals/run.py`. It rebuilds and uses only `evals/fixture.sqlite`, never `data/real/`. The run needs `OPENAI_API_KEY` for query rewording, candidate reordering, the live agent, and the answer-quality judge. If the key is in the repository-root `.env`, load it with `set -a; source .env; set +a` first.
 
-Set `OPENAI_API_KEY` before preparing V2 data. This sends prepared benefit text
-and search questions to OpenAI, so use this mode only when that privacy boundary
-is acceptable. The hashed-vector prototype is not used by production V2.
+The first evaluation run found only **2/11** live-agent factual passes. Requiring exact benefit IDs from official search results, directing the agent to preserve `unknown` and stop, and automatically including the matching official terms with calculations/community results raised this to **11/11 in each of two reruns**. The runner checks facts in the visible answer as well as in tool results; its JSON output includes any failed case, question, tool results, answer, and reason.
 
-## Slice 2 (VKU-16), deterministic benefit status
+On 10 cases with a labeled relevant benefit, basic search hit@5 was **10/10** in both reruns; question rewording also scored **10/10**, and LLM reordering put a relevant result first **10/10**. Basic search already ranked those targets first, so neither added step improved retrieval; neither is used at runtime.
 
-`perk_watch.benefits` calculates all benefit periods, eligible transactions, remaining minor units, deadlines, and the four statuses without an LLM. Merchant resolution may supply canonical merchant facts, but it cannot calculate or override eligibility, dates, amounts, occurrence, remaining value, deadlines, or status. Missing enrollment, portal, anniversary, limit, or potentially eligible transaction evidence returns `indeterminate` with reason and evidence IDs.
+Mean LLM-judge scores (1–5) were **4.77 relevance and 4.59 evidence support with the live agent**, versus **4.18 relevance and 3.41 evidence support without tools**. Each rerun used 44 search/judge calls plus 42–43 live-agent calls, about 75.6k–78.4k tokens total, two tool retries, and no API failures. The synthetic fixture uses word-count embeddings; results do not measure production retrieval quality.
 
-```sh
-PYTHONPATH=src python3 evals/scripts/validate_slice2.py
-```
+### Using evals to improve the agent
 
-## Local-data safety
-
-No preparation command logs in, fetches issuer pages, or contacts Reddit.
-Collection remains an explicit manual/skill action. Check that local artifacts
-are not tracked with:
-
-```sh
-python3 scripts/check_local_data_guard.py
-```
-
-## Slice 1 (VKU-15), transaction ingest and merchant resolution
-
-`TransactionSource` reads CSV and OFX exports into a normalized ledger: transaction and posted dates, raw descriptor, integer minor-unit amount, card, and MCC. OFX imports require a supplied card because OFX does not standardize it; each record must still provide its MCC or use the supplied fallback.
-
-`resolve_merchants(transactions, resolve_descriptor)` accepts canonical merchant facts only from the supplied model resolver. A resolver returning `None` creates an explicit `indeterminate` result, never a guessed merchant. `evals/data/frozen/eval/merchant_cases.json` contains 24 synthetic human-authored labels and `evals/scripts/validate_slice1.py` reports precision/recall and reproducibility.
-
-Run:
-
-```sh
-PYTHONPATH=src python3 evals/scripts/validate_slice1.py
-```
-
-## Slice 0 (VKU-12), frozen inputs
-
-Frozen, offline-only inputs for the PerkWatch evaluation live under `evals/data/frozen/`. Terms, community safety cases, and transaction fixtures are synthetic. Public Reddit provenance and local collection inputs remain under each card's `PERKWATCH_DATA_DIR/raw/<card>/community/` directory.
-
-## Contents
-
-- `evals/data/frozen/terms/`: 10-benefit registry and clause-level synthetic corpus, versioned by `terms_version`.
-- `evals/data/frozen/community/served_ideas.json`: ideas eligible for serving.
-- `evals/data/frozen/community/conflicting_ideas.json`: seeded known-bad ideas retained only for the authority-boundary safety case.
-- `evals/data/frozen/fixtures/transactions.csv`: clearly synthetic ledger rows.
-- `evals/data/frozen/eval/frozen_cases.json`: 36 human-authored expected outcomes.
-- `evals/scripts/validate_slice0.py`: reproducibility and acceptance checks, including exact conflict accuracy.
-
-Run:
-
-```sh
-python3 evals/scripts/validate_slice0.py
-```
-
-The validator prints dataset version, category counts, exact numerators/denominators, observed failures, and known coverage gaps. It does not fetch the network.
-
-## Deliberate follow-ups
-
-1. Re-verify the 10-benefit list and matching against the logged-in account view before submission.
-2. At implementation start, expand matching to all benefits across both cards. Non-observable benefits still need a new data source and remain deferred.
-
-## Provenance boundary
-
-Synthetic fixtures use `synthetic: true` and `example.invalid` URLs. Do not replace them with copied guide text, personal statements, or full Reddit threads. The approved offline community collector may store only public source IDs, URLs, dates, short paraphrases, derived ideas, and review metadata.
+Run the suite, inspect each `live_agent_failures` entry with its tool trace and rendered answer, then fix the shared cause rather than tuning a single question. Add a regression test for the behavior, rerun the full suite twice, and compare factual checks first; use the LLM judge only for answer quality, never factual correctness. Keep rewording or reranking out of runtime unless repeated runs beat basic search.

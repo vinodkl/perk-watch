@@ -2,22 +2,18 @@
 
 ## Work routing
 
-PerkWatch has two implementations:
-
-- **V2 is the default for new work.** Keep V2 implementation under `v2/`. Read `docs/explanation/perk-watch-v2-design.md`, then read the ticket for the active V2 phase. The five core V2 phase tickets define delivery order until that work is mirrored in Linear; the optional Phase 6 Jev experiment follows Phase 5.
-- **V1 is legacy.** For explicit V1 work, read `docs/architecture-flow.md` and check the current PerkWatch Capstone blocking relations in Linear. Linear remains the source of truth for V1 status and blocking relations.
-
-Do not edit V1 code for a V2 ticket unless the user explicitly asks. V1 may be inspected for behavior, but V2 must not import V1 modules.
+PerkWatch has one implementation (V2, now primary). Keep application code under `src/perk_watch/`, command-line entry points under `scripts/`, evaluation cases and runner under `evals/`, and tests under `tests/`. Read `docs/explanation/perk-watch-v2-design.md`, then read the ticket for the active phase before starting work.
 
 ## Local card data
 
 Read `.agents/skills/local-card-data-staging/SKILL.md` before collecting or importing card data.
 
-- Use `PERKWATCH_DATA_DIR`. V1 uses `data/real/`; V2 uses `v2/data/real/` by default.
+- Use `PERKWATCH_DATA_DIR`; the local default root is `data/real/`.
 - Keep real benefits, statements, CSV/OFX exports, credentials, databases, search files, and generated output out of git.
 - User login, MFA, CAPTCHA, account selection, and consent remain manual.
-- For V1 imports, use `src/perk_watch/raw_data.py` so hashes and source records are written.
+- Imports run through `scripts/prepare_data.py`, so hashes and source records are written.
 - Never replace tracked evaluation examples with real data.
+- During LLM merchant matching, send only a cleaned merchant description and a fixed merchant list. Keep amounts, dates, account details, filenames, and complete transaction rows local. Save uncertain results as `unknown`.
 
 ## Community collection
 
@@ -28,26 +24,21 @@ Public Reddit collection is an explicit offline action. It never runs from the a
 - Use public pages without logging in. A login wall is a blocker.
 - The application reads only prepared local data and makes no Reddit requests.
 
+## Runtime
+
+Runtime reads prepared local data only. It does not collect issuer data, import statements, contact Reddit, or change stored data while answering a question. Keep transactions in SQLite and use embedding search only for benefit text and community ideas.
+
 ## Safety boundaries
 
 Do not add automated login, credential storage, bank/card APIs, cookie extraction, or live external lookup while answering user questions. Do not commit real card data, public-community data, provider session files, or full community discussions.
 
 ## Checks
 
-Run the checks for the implementation being changed.
-
-V1:
+Run the checks for the implementation being changed:
 
 ```sh
 python3 scripts/check_local_data_guard.py
-python3 evals/scripts/validate_slice0.py
-```
-
-V2:
-
-```sh
-python3 v2/scripts/check_local_data_guard.py
-python3 -m unittest discover -s v2/tests
+python3 -m unittest discover -s tests
 ```
 
 Run the smallest additional tests that cover the change. Do not commit unless the user explicitly asks.
