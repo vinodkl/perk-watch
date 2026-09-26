@@ -58,7 +58,7 @@ The LLM may extract a benefit amount, time period, eligible merchants, enrollmen
 
 Merchant matching sends only a cleaned merchant description and a fixed list of merchant names to the LLM. Amounts, dates, account details, filenames, and complete transaction rows stay local. Every outbound model boundary also applies the shared PII redactor to high-confidence email, phone, card-number, SSN, address, and URL patterns. Redaction changes only the outbound copy; original local data remains unchanged. Benefit amounts, dates, merchant names, and period terms are preserved because they are needed for extraction and retrieval.
 
-PerkWatch does not include a human review workflow. This keeps the project focused on retrieval, tools, and agent behavior. It also limits the claim: PerkWatch is an experimental assistant, not financial advice.
+Through Phase 7, PerkWatch includes no human review workflow. This keeps the core focused on retrieval, tools, and agent behavior. Phase 9 adds limited review: local overrides applied at preparation time and counted in the report. PerkWatch remains an experimental assistant, not financial advice.
 
 ## Local data
 
@@ -158,7 +158,7 @@ The system comparison evaluates answering from search results without tools agai
 
 ## Delivery phases
 
-PerkWatch is delivered in five core phases, followed by optional Jev and local-tracing phases. Each core phase leaves a working system.
+PerkWatch is delivered in five core phases, followed by optional Jev and local-tracing phases. Each core phase leaves a working system. Two UI phases then put a read-only app and a separate local admin over the same runtime.
 
 ### Phase 1: monthly update and local data
 
@@ -188,9 +188,17 @@ Using Phase 5 results as a baseline, test whether TypeSafe Jev improves the orde
 
 Give each offline preparation run and agent question a trace ID. Record privacy-safe JSONL events for imports, extraction, merchant matching, RAG embedding batches and index writes, and agent tool steps. A CLI summary shows failures, skips, retries, and slow steps without storing source text, prompts, tool results, vectors, or transaction details. Tracing does not provide conversation memory or send data to a hosted service. This phase depends on Phase 5, not on the Jev experiment.
 
+### Phase 8: App UI
+
+Add a localhost read-only API over the existing calculations, searches, and agent, and a web app with one screen: a briefing grouped as Act soon, Check yourself, and On track, plus a right rail with Evidence (labeled "Receipts" on screen) and Ask tabs, in a coupon-wallet visual style. The agent returns selected evidence as structure instead of rendered text; the CLI output does not change. A synthetic demo data root runs through the real preparation pipeline so the demo never shows real card data. An optional engine slice adds a benefit mechanism so statement credits are calculated from issuer credits and perks stop appearing as unknown credits.
+
+### Phase 9: Admin UI
+
+Add a separate localhost admin process that shows pipeline state, stages files, runs preparation, guard, and evals as jobs, and stores corrections as data under `PERKWATCH_DATA_DIR`: a merchant dictionary and per-description decisions, benefit field overrides, and a per-card profile with the account anniversary. Preparation applies the corrections and reports them. Collection stays a skill-driven offline action, and the runtime stays read-only.
+
 ## Phase tickets
 
-Implementation work is split into five core tickets and two optional tickets:
+Implementation work is split into five core tickets, two optional tickets, and two UI tickets:
 
 1. [Phase 1: Monthly update and local data](perk-watch-v2-phase-1-local-data.md)
 2. [Phase 2: Benefit search and calculations](perk-watch-v2-phase-2-search-and-calculations.md)
@@ -199,6 +207,8 @@ Implementation work is split into five core tickets and two optional tickets:
 5. [Phase 5: Evaluation and search improvements](perk-watch-v2-phase-5-evaluation.md)
 6. [Phase 6: Jev experiments](perk-watch-v2-phase-6-jev-experiments.md)
 7. [Phase 7: Local tracing and monitoring](perk-watch-v2-phase-7-local-tracing.md)
+8. [Phase 8: App UI](perk-watch-v2-phase-8-app-ui.md)
+9. [Phase 9: Admin UI](perk-watch-v2-phase-9-admin-ui.md)
 
 ## Code structure
 
@@ -210,6 +220,9 @@ scripts/
   check_local_data_guard.py
   show_benefits.py
   ask.py
+  serve.py            # Phase 8
+  admin.py            # Phase 9
+  build_demo_data.py  # Phase 8
 
 src/perk_watch/
   staging/
@@ -221,8 +234,12 @@ src/perk_watch/
     community.py
     storage.py
     rag_search_index.py
+  api/                # Phase 8 (app.py), Phase 9 (admin.py)
+    app.py
+    admin.py
   runtime/
     app.py
+    briefing.py       # Phase 8
     agent.py
     tools.py
     calculations.py
@@ -236,14 +253,20 @@ evals/
   fixture.py
   harness.py
   run.py
+
+demo/seed/            # Phase 8: synthetic inputs only
+web/                  # Phase 8-9: Vite, React, TypeScript
 ```
 
 `scripts/prepare_data.py` calls `prepare.run()`. Staging registers manually collected files; preparation normalizes them and builds search vectors. Runtime retrieves stored evidence, calculates exact values, and answers through `runtime.app.answer(question)`. Evaluation runs cases through `evals/harness.py`.
 
 Clean code does not require one file per function. Each file owns one meaningful job. The project avoids generic helper folders, pass-through wrappers, and interfaces with only one implementation.
 
-## Later API and UI
+## API and UI
 
-The command-line interface is the only user interface in the first version. A later API calls the same `answer(question)` function and returns the same structured answer. A later web UI calls that API.
+The command-line interface was the only interface through Phase 7. Phases 8 and 9 add two localhost processes over the same code:
 
-Planning for an API means keeping command-line input and printing outside the agent and tool code. It does not require building an API or UI during the capstone.
+- The **app API** (`api/app.py`) opens the prepared database read-only and calls the same calculation, search, and agent functions as the CLI. `run_agent` returns the selected evidence as structure; `answer(question)` renders that same result as text for the CLI.
+- The **admin API** (`api/admin.py`) is a separate process. It calls the existing staging and preparation functions and writes only under `PERKWATCH_DATA_DIR`. The app never imports it.
+
+The web UI calls both. Answering a question still never collects data, imports files, or changes the prepared database.

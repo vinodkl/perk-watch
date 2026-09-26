@@ -1,0 +1,34 @@
+{
+  "benefits": [
+    {
+      "benefit_id": "amex_platinum_quarterly_uber",
+      "title": "Quarterly Uber Credit",
+      "amount_minor": 5000,
+      "period": "quarterly",
+      "eligible_merchants": ["uber"],
+      "enrollment_required": false,
+      "booking_required": false,
+      "terms": "Receive up to $50 in eligible Uber credits each calendar quarter."
+    },
+    {
+      "benefit_id": "amex_platinum_nytimes",
+      "title": "NYTimes Credit",
+      "amount_minor": 1000,
+      "period": "monthly",
+      "eligible_merchants": ["nytimes"],
+      "enrollment_required": true,
+      "booking_required": false,
+      "terms": "Receive up to $10 in statement credits for eligible NYTimes purchases each month."
+    },
+    {
+      "benefit_id": "amex_platinum_whole_foods",
+      "title": "Annual Whole Foods Credit",
+      "amount_minor": 10000,
+      "period": "yearly",
+      "eligible_merchants": ["whole foods"],
+      "enrollment_required": false,
+      "booking_required": false,
+      "terms": "Receive up to $100 for eligible Whole Foods purchases each calendar year."
+    }
+  ]
+}

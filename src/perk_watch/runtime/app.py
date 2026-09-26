@@ -13,7 +13,10 @@ def database(root: str | Path | None = None) -> sqlite3.Connection:
     path = data_root / "prepared" / "perkwatch.sqlite"
     if not path.exists():
         raise FileNotFoundError(f"prepared data not found: {path}")
-    return sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    db = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+    db.execute("PRAGMA busy_timeout = 1000")
+    db.execute("PRAGMA query_only = ON")
+    return db
 
 
 def answer(question: str, root: str | Path | None = None, *, client=None,
