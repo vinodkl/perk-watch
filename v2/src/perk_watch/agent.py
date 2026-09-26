@@ -109,7 +109,7 @@ def answer_with_db(db: sqlite3.Connection, question: str, *, client=None,
     evaluated_ids: set[str] = set()
     evidence: list[dict[str, Any]] = []
     messages = [
-        {"role": "system", "content": "Use the tools to find evidence for the user's question. When done, return ONLY a JSON object matching {\"evidence_indices\": [0, 1]} selecting relevant result indices in the order they should be shown. Do not write prose or facts. Select [] if no result is relevant. Indices refer to individual results, not tool calls."},
+        {"role": "system", "content": "Use the tools to find evidence for the user's question. Tool results include explicit evidence_index values. When done, return ONLY a JSON object matching {\"evidence_indices\": [0, 1]} selecting relevant evidence_index values in the order they should be shown. Do not write prose or facts. Select [] if no result is relevant."},
         {"role": "user", "content": question},
     ]
     seen: set[str] = set()
@@ -123,7 +123,8 @@ def answer_with_db(db: sqlite3.Connection, question: str, *, client=None,
                 selection = EvidenceSelection.model_validate_json(message.content or "")
                 return _render(evidence, selection)
             except (ValidationError, ValueError):
-                return "I couldn't select valid evidence for an answer."
+                # Keep the answer grounded when model-selected indexes are malformed.
+                return _render(evidence, EvidenceSelection(evidence_indices=list(range(len(evidence)))))
         messages.append(message)
         for call in message.tool_calls:
             calls += 1
@@ -166,7 +167,10 @@ def answer_with_db(db: sqlite3.Connection, question: str, *, client=None,
                         result = []
                     _TRANSACTIONS.validate_python(result)
                 results = result if isinstance(result, list) else [result]
+                start = len(evidence)
                 evidence.extend({"tool": name, "result": item} for item in results)
+                result = [{"evidence_index": start + index, "result": item}
+                          for index, item in enumerate(results)]
                 error = False
             except Exception as exc:
                 result, error = {"error": str(exc)}, True

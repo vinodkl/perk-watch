@@ -55,6 +55,26 @@ class Phase4Tests(unittest.TestCase):
         self.assertIn("Community suggestions (not official rules)", output)
         self.assertIn(text, output)
 
+    def test_model_receives_stable_evidence_indices_for_selection(self):
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        class Client:
+            def __init__(self):
+                self.calls = 0
+                self.chat = SimpleNamespace(completions=SimpleNamespace(create=self.create))
+            def create(inner, **kwargs):
+                inner.calls += 1
+                if inner.calls == 1:
+                    return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=None, tool_calls=[
+                        SimpleNamespace(id="c1", function=SimpleNamespace(name="search_community_ideas", arguments='{"question":"hotel"}'))]))])
+                tool_message = next(message for message in kwargs["messages"] if isinstance(message, dict) and message.get("role") == "tool")
+                import json
+                self.assertEqual(json.loads(tool_message["content"])[0]["evidence_index"], 0)
+                return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content='{"evidence_indices": [0]}', tool_calls=[]))])
+        with patch("perk_watch.agent.search_community_ideas", return_value=[{"idea": "Book early", "source_url": "https://reddit.com/x", "source_date": "2026-01-01"}]):
+            result = answer_with_db(self.db, "hotel ideas?", client=Client())
+        self.assertIn("Community suggestions", result)
+
     def test_failed_optional_community_search_does_not_fail_answer(self):
         from types import SimpleNamespace
         from unittest.mock import patch

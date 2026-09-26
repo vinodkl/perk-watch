@@ -76,8 +76,10 @@ class Phase3Tests(unittest.TestCase):
             response(calls=[tool_call("evaluate_benefits", {"benefit_id": "missing"})]),
             response('{"evidence_indices": [0], "answer": "You have $500 remaining."}'),
         ])
-        result = answer_with_db(sqlite3.connect(":memory:"), "check", client=client)
-        self.assertIn("couldn't select valid evidence", result)
+        with patch("perk_watch.agent.calculate_benefit", side_effect=missing_benefit):
+            result = answer_with_db(sqlite3.connect(":memory:"), "check", client=client)
+        self.assertIn("Benefit calculation", result)
+        self.assertNotIn("$500 remaining", result)
 
     def test_calculated_transaction_evidence_is_read_only(self):
         db = sqlite3.connect(":memory:")
