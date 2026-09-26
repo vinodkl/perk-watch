@@ -12,7 +12,7 @@ from .benefits import CARDS, load_benefits
 from .community import load_ideas
 from .credits import match_credits
 from .merchants import match_all
-from ..search import build_benefit_embeddings
+from ..search import build_benefit_embeddings, build_community_embeddings
 from .storage import connect, replace_card_data
 from .transactions import load_transactions
 
@@ -67,6 +67,7 @@ def prepare(root: str | Path, *, extractor: Callable[[str, str], Any] | None = N
                               transactions, matches, credit_matches, ideas)
             if embedder:
                 counts["embeddings"] = build_benefit_embeddings(db, embedder, card_id)
+                counts["community_embeddings"] = build_community_embeddings(db, embedder, card_id)
             report["cards"][card_id] = dict(sorted(counts.items()))
         db.commit()
     finally:

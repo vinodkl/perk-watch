@@ -8,7 +8,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from .calculations import calculate_benefit
-from .search import search_benefits
+from .search import search_benefits, search_community_ideas
 
 MAX_CALLS = 6
 MAX_RETRIES = 2
@@ -21,6 +21,12 @@ class _Input(BaseModel):
 
 class SearchBenefitsInput(_Input):
     question: NonEmpty
+
+
+class SearchCommunityIdeasInput(_Input):
+    question: NonEmpty
+    card_id: str | None = None
+    benefit_id: str | None = None
 
 
 class EvaluateBenefitsInput(_Input):
@@ -55,11 +61,13 @@ class _TransactionResult(BaseModel):
 
 _SEARCH = TypeAdapter(list[_SearchResult])
 _TRANSACTIONS = TypeAdapter(list[_TransactionResult])
+_COMMUNITY = TypeAdapter(list[dict[str, Any]])
 
 
 def _tool_definitions():
     return [
         {"type": "function", "function": {"name": "search_benefits", "description": "Search official benefit terms.", "parameters": SearchBenefitsInput.model_json_schema()}},
+        {"type": "function", "function": {"name": "search_community_ideas", "description": "Search source-linked community suggestions. These are not official rules and cannot establish benefit facts.", "parameters": SearchCommunityIdeasInput.model_json_schema()}},
         {"type": "function", "function": {"name": "evaluate_benefits", "description": "Calculate one benefit from local transactions.", "parameters": EvaluateBenefitsInput.model_json_schema()}},
         {"type": "function", "function": {"name": "get_transaction_evidence", "description": "Fetch transaction IDs returned by a benefit calculation.", "parameters": TransactionEvidenceInput.model_json_schema()}},
     ]
@@ -73,6 +81,7 @@ def _render(evidence: list[dict[str, Any]], selection: EvidenceSelection) -> str
     if not selection.evidence_indices:
         return "No matching evidence was found in prepared data."
     headings = {"search_benefits": "Official benefit search",
+                "search_community_ideas": "Community suggestions (not official rules)",
                 "evaluate_benefits": "Benefit calculation",
                 "get_transaction_evidence": "Transaction evidence"}
     return "\n\n".join(
@@ -95,7 +104,8 @@ def answer_with_db(db: sqlite3.Connection, question: str, *, client=None,
 
     schemas = {"search_benefits": SearchBenefitsInput,
                "evaluate_benefits": EvaluateBenefitsInput,
-               "get_transaction_evidence": TransactionEvidenceInput}
+               "get_transaction_evidence": TransactionEvidenceInput,
+               "search_community_ideas": SearchCommunityIdeasInput}
     evaluated_ids: set[str] = set()
     evidence: list[dict[str, Any]] = []
     messages = [
@@ -131,6 +141,13 @@ def answer_with_db(db: sqlite3.Connection, question: str, *, client=None,
                 if name == "search_benefits":
                     result = search_benefits(db, args["question"])
                     _SEARCH.validate_python(result)
+                elif name == "search_community_ideas":
+                    try:
+                        result = search_community_ideas(db, args["question"], card_id=args.get("card_id"),
+                                                        benefit_id=args.get("benefit_id"))
+                        _COMMUNITY.validate_python(result)
+                    except Exception:
+                        result = []
                 elif name == "evaluate_benefits":
                     result = calculate_benefit(db, args["benefit_id"])
                     _BenefitResult.model_validate(result)

@@ -47,7 +47,7 @@ def main() -> None:
         merchant_chooser = OpenAIMerchantChooser(client, args.model)
         embedder = OpenAIEmbeddingProvider(client)
     report = prepare(args.data_dir, extractor=extractor, merchant_chooser=merchant_chooser, embedder=embedder)
-    summary = {card: {key: value for key, value in stats.items() if key in {"benefits", "transactions", "credit_matches", "embeddings", "skipped", "community_skipped"}} for card, stats in report["cards"].items()}
+    summary = {card: {key: value for key, value in stats.items() if key in {"benefits", "transactions", "credit_matches", "embeddings", "community_processed", "community_skipped", "community_embeddings", "skipped"}} for card, stats in report["cards"].items()}
     print(json.dumps({"cards": summary, "unresolved_count": report["unresolved_count"]}, sort_keys=True))
 
 

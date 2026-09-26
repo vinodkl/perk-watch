@@ -29,12 +29,19 @@ def _load_version(directory: Path, benefit_ids: set[str], terms_version: str) ->
     candidates = json.loads((directory / "candidates.json").read_text(encoding="utf-8")).get("candidates", [])
     judgments = {row.get("idea_id"): row for row in json.loads(
         (directory / "model_judgments.json").read_text(encoding="utf-8")).get("judgments", [])}
+    source_dates = {}
+    results_path = directory / "collection_results.json"
+    if results_path.exists():
+        results = json.loads(results_path.read_text(encoding="utf-8"))
+        source_dates = {source.get("id"): source.get("source_date", "")
+                        for benefit in results.get("benefits", []) for source in benefit.get("sources", [])}
     rows = []
     for candidate in candidates:
         judgment = judgments.get(candidate.get("idea_id"), {})
         rows.append({**candidate, "review_label": judgment.get("review_label"),
                      "terms_version": judgment.get("terms_version", candidate.get("terms_version")),
-                     "excerpt": candidate.get("excerpt", candidate.get("source_paraphrase", ""))})
+                     "excerpt": candidate.get("excerpt", candidate.get("source_paraphrase", "")),
+                     "source_date": candidate.get("source_date") or source_dates.get(candidate.get("source_id"), "")})
     return _filter(rows, benefit_ids, terms_version)
 
 
@@ -45,5 +52,6 @@ def _filter(rows: list[dict[str, Any]], benefit_ids: set[str], terms_version: st
                 or row.get("benefit_id") not in benefit_ids or not str(row.get("source_url", "")).startswith("https://")):
             skipped += 1
             continue
-        kept.append({key: row.get(key, "") for key in ("idea_id", "benefit_id", "idea", "excerpt", "source_url", "terms_version")})
+        kept.append({key: row.get(key, "") for key in ("idea_id", "benefit_id", "idea", "excerpt", "source_url", "terms_version")}
+                    | {"source_date": next((row[key] for key in ("source_date", "posted_at", "created_at", "collection_date") if row.get(key)), "")})
     return kept, {"processed": len(kept), "skipped": skipped}

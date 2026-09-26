@@ -36,7 +36,12 @@ CREATE TABLE IF NOT EXISTS credit_matches (
 CREATE TABLE IF NOT EXISTS community_ideas (
   idea_id TEXT PRIMARY KEY, card_id TEXT NOT NULL REFERENCES cards(card_id),
   benefit_id TEXT NOT NULL, idea TEXT NOT NULL, excerpt TEXT NOT NULL,
-  source_url TEXT NOT NULL, terms_version TEXT NOT NULL
+  source_url TEXT NOT NULL, terms_version TEXT NOT NULL, source_date TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS community_embeddings (
+  idea_id TEXT PRIMARY KEY REFERENCES community_ideas(idea_id),
+  model TEXT NOT NULL, dimensions INTEGER NOT NULL, vector_json TEXT NOT NULL,
+  content_sha256 TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS benefit_embeddings (
   benefit_id TEXT PRIMARY KEY REFERENCES benefits(benefit_id),
@@ -51,6 +56,9 @@ def connect(path: str | Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path)
     db.executescript(SCHEMA)
+    columns = {row[1] for row in db.execute("PRAGMA table_info(community_ideas)")}
+    if "source_date" not in columns:
+        db.execute("ALTER TABLE community_ideas ADD COLUMN source_date TEXT NOT NULL DEFAULT ''")
     return db
 
 
@@ -63,6 +71,7 @@ def replace_card_data(db: sqlite3.Connection, card_id: str, display_name: str,
     db.execute("DELETE FROM transactions WHERE card_id = ?", (card_id,))
     db.execute("DELETE FROM benefit_embeddings WHERE benefit_id IN (SELECT benefit_id FROM benefits WHERE card_id = ?)", (card_id,))
     db.execute("DELETE FROM benefits WHERE card_id = ?", (card_id,))
+    db.execute("DELETE FROM community_embeddings WHERE idea_id IN (SELECT idea_id FROM community_ideas WHERE card_id = ?)", (card_id,))
     db.execute("DELETE FROM community_ideas WHERE card_id = ?", (card_id,))
     db.execute("DELETE FROM sources WHERE card_id = ?", (card_id,))
     db.execute("INSERT OR REPLACE INTO cards VALUES (?, ?)", (card_id, display_name))
@@ -81,5 +90,5 @@ def replace_card_data(db: sqlite3.Connection, card_id: str, display_name: str,
         db.execute("INSERT OR REPLACE INTO credit_matches VALUES (?, ?, ?)",
                    (row["transaction_id"], row["benefit_id"], row["confidence"]))
     for row in ideas:
-        db.execute("INSERT OR REPLACE INTO community_ideas VALUES (?, ?, ?, ?, ?, ?, ?)",
-                   (row["idea_id"], card_id, row["benefit_id"], row["idea"], row["excerpt"], row["source_url"], row["terms_version"]))
+        db.execute("INSERT OR REPLACE INTO community_ideas VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                   (row["idea_id"], card_id, row["benefit_id"], row["idea"], row["excerpt"], row["source_url"], row["terms_version"], row.get("source_date", "")))

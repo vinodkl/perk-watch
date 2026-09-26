@@ -28,6 +28,10 @@ def _content_hash(title: str, terms: str) -> str:
     return hashlib.sha256(f"{title}\n{terms}".encode()).hexdigest()
 
 
+def _idea_hash(idea: str, excerpt: str) -> str:
+    return hashlib.sha256(f"{idea}\n{excerpt}".encode()).hexdigest()
+
+
 def _cosine(left: list[float], right: list[float]) -> float:
     if len(left) != len(right):
         raise ValueError("embedding dimensions do not match")
@@ -100,6 +104,75 @@ class BenefitSearch:
                  "title": row[3], "text": row[4], "score": score,
                  "source_reference": {"source_id": row[5], "path": row[6]}}
                 for score, row in ranked[:limit]]
+
+
+class CommunitySearch:
+    """Search prepared, current community ideas separately from official facts."""
+
+    def __init__(self, db: sqlite3.Connection, embedder: EmbeddingProvider | None = None):
+        self.db = db
+        self.embedder = embedder
+
+    def _provider(self) -> EmbeddingProvider:
+        if self.embedder is None:
+            from .embeddings import OpenAIEmbeddingProvider
+            self.embedder = OpenAIEmbeddingProvider()
+        return self.embedder
+
+    def search(self, question: str, *, card_id: str | None = None,
+               benefit_id: str | None = None, limit: int = 5) -> list[dict[str, object]]:
+        if limit < 1:
+            return []
+        clauses, params = ["i.source_date <> ''"], []
+        if card_id:
+            clauses.append("i.card_id = ?")
+            params.append(card_id)
+        if benefit_id:
+            clauses.append("i.benefit_id = ?")
+            params.append(benefit_id)
+        rows = self.db.execute(
+            "SELECT i.idea_id, i.card_id, c.display_name, i.benefit_id, b.title, i.idea, i.excerpt, "
+            "i.source_url, i.source_date, e.model, e.vector_json, e.content_sha256 "
+            "FROM community_ideas i JOIN benefits b ON b.benefit_id = i.benefit_id "
+            "JOIN cards c ON c.card_id = i.card_id "
+            "LEFT JOIN community_embeddings e ON e.idea_id = i.idea_id WHERE " + " AND ".join(clauses), params
+        ).fetchall()
+        if not rows:
+            return []
+        provider = self._provider()
+        query_vector = provider.embed([question])[0]
+        missing = [row for row in rows if row[10] is None or row[9] != provider.model
+                   or row[11] != _idea_hash(row[5], row[6])]
+        generated = iter(provider.embed([f"{row[5]}\n{row[6]}" for row in missing])) if missing else iter(())
+        ranked = []
+        for row in rows:
+            vector = next(generated) if row in missing else json.loads(row[10])
+            score = _cosine(query_vector, vector)
+            if score >= _MIN_SCORE:
+                ranked.append((score, row))
+        ranked.sort(key=lambda item: (-item[0], item[1][2], item[1][0]))
+        return [{"idea_id": row[0], "card_id": row[1], "card": row[2], "benefit_id": row[3],
+                 "benefit": row[4], "idea": row[5], "excerpt": row[6], "source_url": row[7],
+                 "source_date": row[8], "label": "Community suggestion", "score": score}
+                for score, row in ranked[:limit]]
+
+
+def search_community_ideas(db: sqlite3.Connection, question: str, **filters: object) -> list[dict[str, object]]:
+    return CommunitySearch(db, filters.pop("embedder", None)).search(question, **filters)
+
+
+def build_community_embeddings(db: sqlite3.Connection, embedder: EmbeddingProvider,
+                               card_id: str | None = None) -> int:
+    query = ("SELECT idea_id, idea, excerpt FROM community_ideas WHERE card_id = ? ORDER BY idea_id"
+             if card_id else "SELECT idea_id, idea, excerpt FROM community_ideas ORDER BY idea_id")
+    rows = db.execute(query, (card_id,) if card_id else ()).fetchall()
+    vectors = embedder.embed([f"{idea}\n{excerpt}" for _, idea, excerpt in rows]) if rows else []
+    if len(vectors) != len(rows):
+        raise ValueError("embedding provider returned the wrong number of vectors")
+    for (idea_id, idea, excerpt), vector in zip(rows, vectors):
+        db.execute("INSERT OR REPLACE INTO community_embeddings VALUES (?, ?, ?, ?, ?)",
+                   (idea_id, embedder.model, len(vector), json.dumps(vector), _idea_hash(idea, excerpt)))
+    return len(rows)
 
 
 def build_benefit_embeddings(db: sqlite3.Connection, embedder: EmbeddingProvider,

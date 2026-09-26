@@ -127,7 +127,7 @@ class Phase1Test(unittest.TestCase):
         }]}))
         candidates = [
             {"idea_id": "keep", "benefit_id": "amex_platinum_travel", "idea": "Current idea",
-             "source_paraphrase": "Short paraphrase", "source_url": "https://reddit.com/keep", "terms_version": "current"},
+             "source_id": "post-1", "source_paraphrase": "Short paraphrase", "source_url": "https://reddit.com/keep", "terms_version": "current"},
             {"idea_id": "conflict", "benefit_id": "amex_platinum_travel", "idea": "Conflicting idea",
              "source_url": "https://reddit.com/conflict", "terms_version": "current"},
             {"idea_id": "unreviewed", "benefit_id": "amex_platinum_travel", "idea": "Unreviewed idea",
@@ -139,11 +139,14 @@ class Phase1Test(unittest.TestCase):
         ]
         (latest / "candidates.json").write_text(json.dumps({"candidates": candidates}))
         (latest / "model_judgments.json").write_text(json.dumps({"judgments": judgments}))
+        (latest / "collection_results.json").write_text(json.dumps({"benefits": [{"sources": [
+            {"id": "post-1", "source_date": "2026-01-02"}]}]}))
 
         ideas, stats = load_ideas("amex_platinum", community, {"amex_platinum_travel"}, "current")
 
         self.assertEqual([row["idea_id"] for row in ideas], ["keep"])
         self.assertEqual(ideas[0]["excerpt"], "Short paraphrase")
+        self.assertEqual(ideas[0]["source_date"], "2026-01-02")
         self.assertEqual(stats, {"processed": 1, "skipped": 2})
 
     def test_unknown_merchants_are_batched_through_a_fixed_list_chooser(self):
