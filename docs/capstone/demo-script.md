@@ -2,6 +2,8 @@
 
 One story: **a credit is about to expire → why → what to do → how do I know it's right.** Every capstone topic appears once: fetching and normalizing (step 1), tracker (step 2), RAG and agent loop (steps 3 and 4), evals (step 5).
 
+Two things to keep saying out loud as you go: **code decides every number, AI only explains and proposes** (never the reverse), and **this is deliberately small** — 2 cards, 13 hand-checked credits, my own data — built to prove depth on a few hard problems, not issuer-count breadth.
+
 The app runs on **synthetic demo data**, so it is safe to screen-share or record. Only step 5 touches my real data, and it prints counts only.
 
 ## Before you start (10 minutes earlier)
@@ -48,11 +50,11 @@ uv run python evals/run.py --suite tracker --real
 | 1:40–2:20 | Wallet Ask that calls `search_terms` | RAG (retrieval), agent loop |
 | 2:20–3:00 | Eval run and results | evals |
 
-### Step 1 (0:00–0:25): the at-risk coupon
+### Step 1 (0:00–0:25): the at-risk coupon and this week's plan
 
-**Show:** the main page. Point at the headline **"$182.95 is about to expire"**, the left summary (at risk, missed, captured), and the top coupon under **EXPIRING SOON**.
+**Show:** the main page. Point at the headline **"$182.95 is about to expire"**, the left summary (at risk, missed, captured), the **THIS WEEK'S PLAN** card with its "AI-WRITTEN" pill, and the top coupon under **EXPIRING SOON** (labelled "FROM STATEMENTS").
 
-**Say:** "I wanted a tracker like MaxRewards, plus a chat. My old version returned 'unknown' for 63 of 63 benefits on my real data. The fix was simple: Amex already prints a statement credit line for every redemption, so one regex per credit in a hand-checked catalog tells me what I used. I export the CSV myself; there are no automated logins."
+**Say:** "I wanted a tracker like MaxRewards, plus a chat. My old version returned 'unknown' for 63 of 63 benefits on my real data. The fix was simple: Amex already prints a statement credit line for every redemption, so one regex per credit in a hand-checked catalog tells me what I used — no LLM decides that. The plan above is the one place AI writes something on this page, and it's labelled as such; everything else, including the coupon, comes straight from statements. This is a small, personal project on purpose: 2 cards, 13 credits I hand-checked myself, built to prove I understand these tradeoffs, not to cover every card on the market."
 
 ### Step 2 (0:25–1:00): benefit panel history
 

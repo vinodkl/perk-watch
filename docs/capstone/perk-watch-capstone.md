@@ -6,6 +6,8 @@ PerkWatch tracks every statement credit on my cards, period by period (used, par
 
 *All screenshots in this write-up use the synthetic demo data from `scripts/build_demo_data.py`, not my real account.*
 
+> **Design philosophy.** Every number here — status, amount, deadline — is computed by code; AI only explains it, suggests what to do, and proposes actions a tap confirms. It never decides a status. And the project is small on purpose: 2 cards, 13 hand-checked credits, my own data. The goal wasn't issuer-count breadth, it was proving depth on a few hard problems (regex vs. LLM for ground truth, grounding, evals) on a system I'd actually use myself.
+
 ## 1. The problem
 
 **The goal.** I wanted a tracker like MaxRewards' benefits page (maxrewards.com/my/benefits):
