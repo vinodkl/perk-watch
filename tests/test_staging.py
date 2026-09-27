@@ -11,8 +11,8 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from perk_watch.staging.raw_data import import_benefit_guide, import_transactions
 from perk_watch.cards import load_cards
 from perk_watch.prepare.benefits import CARDS
-from perk_watch.prepare.credits import match_credits
-from perk_watch.prepare.run import _sources
+from perk_watch.prepare.run import _sources, _unmatched_credit_lines
+from perk_watch.catalog import load_catalog
 from perk_watch.runtime.app import database
 
 
@@ -21,11 +21,10 @@ class StagingTests(unittest.TestCase):
         cards = load_cards()
         self.assertEqual(set(cards), {"amex_platinum", "chase_sapphire_preferred"})
         self.assertEqual(CARDS, {card: info["display_name"] for card, info in cards.items()})
-        benefit = [{"benefit_id": "credit", "title": "Hotel credit"}]
         for card, sign in (("amex_platinum", -100), ("chase_sapphire_preferred", 100)):
-            rows = [{"transaction_id": "yes", "description": "Hotel credit", "amount_minor": sign},
-                    {"transaction_id": "no", "description": "Hotel credit", "amount_minor": -sign}]
-            self.assertEqual([row["transaction_id"] for row in match_credits(card, rows, benefit)], ["yes"])
+            rows = [{"description": "Unlisted statement credit", "amount_minor": sign},
+                    {"description": "Unlisted statement credit", "amount_minor": -sign}]
+            self.assertEqual(_unmatched_credit_lines(card, rows, load_catalog()), 1)
         with tempfile.TemporaryDirectory() as temp:
             guide = Path(temp) / "guide.json"
             guide.write_text("{}", encoding="utf-8")

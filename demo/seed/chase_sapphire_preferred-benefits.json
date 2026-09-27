@@ -1,35 +1,30 @@
 {
   "benefits": [
     {
-      "benefit_id": "chase_sapphire_preferred_doordash",
-      "title": "DoorDash Credit",
-      "amount_minor": 1000,
-      "period": "monthly",
-      "mechanism": "checkout_discount",
-      "eligible_merchants": ["doordash"],
-      "enrollment_required": true,
-      "booking_required": false,
-      "terms": "Receive up to $10 for eligible DoorDash purchases each month."
-    },
-    {
-      "benefit_id": "chase_sapphire_preferred_airbnb",
-      "title": "Annual Airbnb Credit",
+      "benefit_id": "chase_sapphire_preferred_benefit_010",
+      "title": "$100 Chase Travel Hotel Credit",
       "amount_minor": 10000,
       "period": "yearly",
-      "eligible_merchants": ["airbnb"],
-      "enrollment_required": false,
-      "booking_required": true,
-      "terms": "Receive up to $100 for eligible Airbnb bookings each calendar year."
-    },
-    {
-      "benefit_id": "chase_sapphire_preferred_account_year",
-      "title": "Account Anniversary Travel Credit",
-      "amount_minor": 5000,
-      "period": "account_year",
-      "eligible_merchants": ["uber"],
+      "eligible_merchants": [
+        "travel portal"
+      ],
       "enrollment_required": false,
       "booking_required": false,
-      "terms": "Receive up to $50 for eligible travel purchases each account year."
+      "mechanism": "statement_credit",
+      "terms": "Demo terms: up to $100 back each account anniversary year on hotel stays booked through the issuer travel portal."
+    },
+    {
+      "benefit_id": "chase_sapphire_preferred_benefit_001",
+      "title": "$10 Monthly DoorDash Credit",
+      "amount_minor": 1000,
+      "period": "monthly",
+      "eligible_merchants": [
+        "doordash"
+      ],
+      "enrollment_required": true,
+      "booking_required": false,
+      "mechanism": "in_app_cash",
+      "terms": "Demo terms: after activating a complimentary DashPass membership, a $10 DoorDash promotion is available each month for non-restaurant orders."
     }
   ]
 }

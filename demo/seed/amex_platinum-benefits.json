@@ -1,34 +1,148 @@
 {
   "benefits": [
     {
-      "benefit_id": "amex_platinum_quarterly_uber",
-      "title": "Quarterly Uber Credit",
-      "amount_minor": 5000,
-      "period": "quarterly",
-      "eligible_merchants": ["uber"],
-      "enrollment_required": false,
-      "booking_required": false,
-      "terms": "Receive up to $50 in eligible Uber credits each calendar quarter."
-    },
-    {
-      "benefit_id": "amex_platinum_nytimes",
-      "title": "NYTimes Credit",
-      "amount_minor": 1000,
+      "benefit_id": "amex_platinum_300_digital_entertainment_credit",
+      "title": "$300 Digital Entertainment Credit",
+      "amount_minor": 2500,
       "period": "monthly",
-      "eligible_merchants": ["nytimes"],
+      "eligible_merchants": [
+        "streaming",
+        "news"
+      ],
       "enrollment_required": true,
       "booking_required": false,
-      "terms": "Receive up to $10 in statement credits for eligible NYTimes purchases each month."
+      "mechanism": "statement_credit",
+      "terms": "Demo terms: up to $25 back each calendar month on eligible streaming and news subscriptions paid with the card after enrolling."
     },
     {
-      "benefit_id": "amex_platinum_whole_foods",
-      "title": "Annual Whole Foods Credit",
-      "amount_minor": 10000,
-      "period": "yearly",
-      "eligible_merchants": ["whole foods"],
+      "benefit_id": "amex_platinum_walmart_monthly_membership_credit",
+      "title": "Walmart+ Monthly Membership Credit",
+      "amount_minor": 1295,
+      "period": "monthly",
+      "eligible_merchants": [
+        "walmart"
+      ],
       "enrollment_required": false,
       "booking_required": false,
-      "terms": "Receive up to $100 for eligible Whole Foods purchases each calendar year."
+      "mechanism": "statement_credit",
+      "terms": "Demo terms: a monthly Walmart+ membership fee paid with the card is credited back, up to $12.95 plus tax."
+    },
+    {
+      "benefit_id": "amex_platinum_200_uber_cash",
+      "title": "$200 Uber Cash",
+      "amount_minor": 1500,
+      "period": "monthly",
+      "eligible_merchants": [
+        "uber"
+      ],
+      "enrollment_required": false,
+      "booking_required": false,
+      "mechanism": "in_app_cash",
+      "terms": "Demo terms: $15 of Uber Cash is added to a linked Uber account each month, with $35 in December. Unused Uber Cash expires at month end."
+    },
+    {
+      "benefit_id": "amex_platinum_400_resy_credit",
+      "title": "$400 Resy Credit",
+      "amount_minor": 10000,
+      "period": "quarterly",
+      "eligible_merchants": [
+        "resy"
+      ],
+      "enrollment_required": true,
+      "booking_required": false,
+      "mechanism": "statement_credit",
+      "terms": "Demo terms: after enrolling, up to $100 back each calendar quarter at participating Resy restaurants in the U.S."
+    },
+    {
+      "benefit_id": "amex_platinum_300_lululemon_credit",
+      "title": "$300 lululemon Credit",
+      "amount_minor": 7500,
+      "period": "quarterly",
+      "eligible_merchants": [
+        "lululemon"
+      ],
+      "enrollment_required": true,
+      "booking_required": false,
+      "mechanism": "statement_credit",
+      "terms": "Demo terms: after enrolling, up to $75 back each calendar quarter on eligible lululemon purchases in U.S. stores or online."
+    },
+    {
+      "benefit_id": "amex_platinum_600_hotel_credit",
+      "title": "$600 Hotel Credit",
+      "amount_minor": 30000,
+      "period": "half_yearly",
+      "eligible_merchants": [
+        "hotels"
+      ],
+      "enrollment_required": false,
+      "booking_required": true,
+      "mechanism": "statement_credit",
+      "terms": "Demo terms: up to $300 back twice a year on prepaid bookings through the issuer's hotel programs, with a minimum stay."
+    },
+    {
+      "benefit_id": "amex_platinum_120_uber_one_credit",
+      "title": "$120 Uber One Credit",
+      "amount_minor": 12000,
+      "period": "yearly",
+      "eligible_merchants": [
+        "uber one"
+      ],
+      "enrollment_required": false,
+      "booking_required": false,
+      "mechanism": "statement_credit",
+      "terms": "Demo terms: an Uber One membership billed to the card is credited back, up to $120 per calendar year."
+    },
+    {
+      "benefit_id": "amex_platinum_200_airline_fee_credit",
+      "title": "$200 Airline Fee Credit",
+      "amount_minor": 20000,
+      "period": "yearly",
+      "eligible_merchants": [
+        "airline"
+      ],
+      "enrollment_required": true,
+      "booking_required": false,
+      "mechanism": "statement_credit",
+      "terms": "Demo terms: after choosing one qualifying airline, up to $200 per calendar year back on incidental fees such as bags or seat selection."
+    },
+    {
+      "benefit_id": "amex_platinum_200_oura_ring_credit",
+      "title": "$200 Oura Ring Credit",
+      "amount_minor": 20000,
+      "period": "yearly",
+      "eligible_merchants": [
+        "oura"
+      ],
+      "enrollment_required": true,
+      "booking_required": false,
+      "mechanism": "statement_credit",
+      "terms": "Demo terms: after enrolling, up to $200 per calendar year back on an Oura Ring bought directly from Oura."
+    },
+    {
+      "benefit_id": "amex_platinum_219_clear_credit",
+      "title": "$219 CLEAR+ Credit",
+      "amount_minor": 21900,
+      "period": "yearly",
+      "eligible_merchants": [
+        "clear"
+      ],
+      "enrollment_required": false,
+      "booking_required": false,
+      "mechanism": "statement_credit",
+      "terms": "Demo terms: a CLEAR+ membership charged to the card is credited back, up to $219 per calendar year."
+    },
+    {
+      "benefit_id": "amex_platinum_300_equinox_credit",
+      "title": "$300 Equinox Credit",
+      "amount_minor": 30000,
+      "period": "yearly",
+      "eligible_merchants": [
+        "equinox"
+      ],
+      "enrollment_required": true,
+      "booking_required": false,
+      "mechanism": "statement_credit",
+      "terms": "Demo terms: after enrolling, up to $300 per calendar year back on eligible Equinox club or app memberships."
     }
   ]
 }

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import shutil
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,8 +30,12 @@ def main() -> None:
         import_benefit_guide(seed / f"{card}-benefits.json", card=card, root=target,
                              url="https://example.test/perkwatch-demo")
         import_transactions(seed / f"{card}-transactions.csv", card=card, root=target)
+        community = target / "raw" / card.replace("_", "-") / "community"
+        community.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(seed / f"{card}-tips.json", community / "tips.json")
+    # No blurb writer: the demo builds offline and deterministically, so blurbs stay empty.
     report = prepare(target)
-    print(json.dumps({"root": str(target), "cards": report["cards"],
+    print(json.dumps({"root": str(target), "cards": report["cards"], "blurbs": report["blurbs"],
                       "unresolved_count": report["unresolved_count"]}, sort_keys=True))
 
 

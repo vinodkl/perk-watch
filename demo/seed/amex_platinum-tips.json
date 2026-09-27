@@ -1,0 +1,62 @@
+{
+  "collected_on": "2026-09-19",
+  "tips": [
+    {
+      "benefit_id": "amex_platinum_300_digital_entertainment_credit",
+      "tip": "Demo tip: put one eligible streaming subscription on the card so the monthly credit posts on its own.",
+      "source_url": "https://example.test/perkwatch-demo/tips/1",
+      "source_title": "Synthetic demo tip",
+      "source_date": "2026-09-01",
+      "last_verified": "2026-09-19"
+    },
+    {
+      "benefit_id": "amex_platinum_300_digital_entertainment_credit",
+      "tip": "Demo tip: enroll in the card app first; charges before enrolling do not count.",
+      "source_url": "https://example.test/perkwatch-demo/tips/2",
+      "source_title": "Synthetic demo tip",
+      "source_date": "2026-09-01",
+      "last_verified": "2026-09-19"
+    },
+    {
+      "benefit_id": "amex_platinum_400_resy_credit",
+      "tip": "Demo tip: book through Resy and pay at a participating restaurant early in the quarter.",
+      "source_url": "https://example.test/perkwatch-demo/tips/3",
+      "source_title": "Synthetic demo tip",
+      "source_date": "2026-09-01",
+      "last_verified": "2026-09-19"
+    },
+    {
+      "benefit_id": "amex_platinum_300_lululemon_credit",
+      "tip": "Demo tip: small in-store purchases each quarter are an easy way to use it.",
+      "source_url": "https://example.test/perkwatch-demo/tips/4",
+      "source_title": "Synthetic demo tip",
+      "source_date": "2026-09-01",
+      "last_verified": "2026-09-19"
+    },
+    {
+      "benefit_id": "amex_platinum_600_hotel_credit",
+      "tip": "Demo tip: a two-night prepaid stay in each half of the year uses both halves.",
+      "source_url": "https://example.test/perkwatch-demo/tips/5",
+      "source_title": "Synthetic demo tip",
+      "source_date": "2026-09-01",
+      "last_verified": "2026-09-19"
+    },
+    {
+      "benefit_id": "amex_platinum_200_uber_cash",
+      "tip": "Demo tip: Uber Cash also works on Uber Eats orders, so it rarely goes unused.",
+      "source_url": "https://example.test/perkwatch-demo/tips/6",
+      "source_title": "Synthetic demo tip",
+      "source_date": "2026-09-01",
+      "last_verified": "2026-09-19"
+    },
+    {
+      "benefit_id": "amex_platinum_not_in_catalog",
+      "tip": "Demo tip that is filtered out because its benefit is not in the catalog.",
+      "source_url": "https://example.test/perkwatch-demo/tips/7",
+      "source_title": "Synthetic demo tip",
+      "source_date": "2026-09-01",
+      "last_verified": "2026-09-19"
+    }
+  ],
+  "no_longer_works": []
+}

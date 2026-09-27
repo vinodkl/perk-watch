@@ -33,6 +33,18 @@ class PrepareScriptTest(unittest.TestCase):
                 else:
                     os.environ["OPENAI_API_KEY"] = old_key
 
+    def test_blurb_writer_is_skipped_without_an_api_key(self):
+        from unittest.mock import patch
+        sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
+        from perk_watch.prepare.blurbs import default_writer
+        with patch("perk_watch.embeddings._api_key", return_value=None):
+            self.assertIsNone(default_writer())
+
+    def test_prepare_script_no_longer_wires_merchant_matching(self):
+        source = (Path(__file__).parents[1] / "scripts/prepare_data.py").read_text(encoding="utf-8")
+        self.assertNotIn("merchant", source)
+        self.assertIn("blurb_writer=default_writer", source)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,22 @@
+{
+  "collected_on": "2026-09-19",
+  "tips": [
+    {
+      "benefit_id": "chase_sapphire_preferred_benefit_010",
+      "tip": "Demo tip: a one-night prepaid portal hotel booking is enough to trigger the credit.",
+      "source_url": "https://example.test/perkwatch-demo/tips/1",
+      "source_title": "Synthetic demo tip",
+      "source_date": "2026-09-01",
+      "last_verified": "2026-09-19"
+    },
+    {
+      "benefit_id": "chase_sapphire_preferred_benefit_001",
+      "tip": "Demo tip: a grocery or convenience order is an easy way to use the monthly DoorDash promo.",
+      "source_url": "https://example.test/perkwatch-demo/tips/2",
+      "source_title": "Synthetic demo tip",
+      "source_date": "2026-09-01",
+      "last_verified": "2026-09-19"
+    }
+  ],
+  "no_longer_works": []
+}

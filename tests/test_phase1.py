@@ -11,10 +11,8 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from perk_watch.prepare.benefits import load_benefits
-from perk_watch.prepare.community import load_ideas
-from perk_watch.prepare.credits import match_credits
+from perk_watch.prepare.community import load_ideas, load_tips, tip_id
 from perk_watch.prepare.extractor import OpenAIBenefitExtractor
-from perk_watch.prepare.merchants import MERCHANTS, OpenAIMerchantChooser, match_all
 from perk_watch.prepare.run import prepare
 from perk_watch.prepare.transactions import load_transactions
 
@@ -149,87 +147,19 @@ class Phase1Test(unittest.TestCase):
         self.assertEqual(ideas[0]["source_date"], "2026-01-02")
         self.assertEqual(stats, {"processed": 1, "skipped": 2})
 
-    def test_unknown_merchants_are_batched_through_a_fixed_list_chooser(self):
-        calls = []
+    def test_merchant_and_credit_matching_modules_are_gone(self):
+        import importlib
+        for name in ("perk_watch.prepare.merchants", "perk_watch.prepare.credits"):
+            with self.assertRaises(ModuleNotFoundError):
+                importlib.import_module(name)
 
-        def chooser(descriptions, merchants):
-            calls.append((descriptions, merchants))
-            return {"ubr trip": "uber", "mystery": "invented merchant"}
-
-        matches = match_all(["UBER *TRIP 1234", "UBR TRIP 5678", "MYSTERY 9012"], chooser)
-
-        self.assertEqual(calls, [(('ubr trip', 'mystery'), MERCHANTS)])
-        self.assertEqual(matches, [("uber", "exact"), ("uber", "model"), (None, "unknown")])
-
-    def test_openai_merchant_chooser_batches_json_requests(self):
-        class Completions:
-            def __init__(self):
-                self.calls = 0
-
-            def create(self, **kwargs):
-                self.calls += 1
-                request = json.loads(kwargs["messages"][-1]["content"])
-                matches = [{"description": value, "merchant": "uber" if value.startswith("ubr") else None}
-                           for value in request["descriptions"]]
-                message = SimpleNamespace(content=json.dumps({"matches": matches}))
-                return SimpleNamespace(choices=[SimpleNamespace(message=message)])
-
-        completions = Completions()
-        client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
-        chooser = OpenAIMerchantChooser(client, batch_size=2)
-
-        result = chooser(("ubr trip", "mystery", "other"), MERCHANTS)
-
-        self.assertEqual(completions.calls, 2)
-        self.assertEqual(result, {"ubr trip": "uber", "mystery": None, "other": None})
-
-    def test_explicit_statement_credits_are_matched_without_replacing_merchant_matching(self):
-        amex_benefits = [
-            {"benefit_id": "amex_platinum_lululemon", "title": "$300 lululemon Credit"},
-            {"benefit_id": "amex_platinum_hotel", "title": "$600 Hotel Credit"},
-            {"benefit_id": "amex_platinum_hotel_collection", "title": "The Hotel Collection"},
-        ]
-        amex_transactions = [
-            {"transaction_id": "credit", "description": "LULULEMON MEMBERSHIP CREDIT", "amount_minor": -7500},
-            {"transaction_id": "purchase", "description": "LULULEMON", "amount_minor": 7500},
-            {"transaction_id": "refund", "description": "LULULEMON REFUND", "amount_minor": -7500},
-            {"transaction_id": "ambiguous", "description": "HOTEL CREDIT", "amount_minor": -10000},
-        ]
-        chase_benefits = [{
-            "benefit_id": "chase_sapphire_preferred_hotel", "title": "$100 Annual Chase Travel Hotel Credit"
-        }]
-        chase_transactions = [{
-            "transaction_id": "chase-credit", "description": "CHASE TRAVEL HOTEL CREDIT", "amount_minor": 10000
-        }]
-
-        self.assertEqual(match_credits("amex_platinum", amex_transactions, amex_benefits), [{
-            "transaction_id": "credit", "benefit_id": "amex_platinum_lululemon", "confidence": "explicit"
-        }])
-        self.assertEqual(match_credits("chase_sapphire_preferred", chase_transactions, chase_benefits), [{
-            "transaction_id": "chase-credit", "benefit_id": "chase_sapphire_preferred_hotel", "confidence": "explicit"
-        }])
-
-    def test_prepare_uses_the_batched_merchant_chooser(self):
+    def test_prepare_keeps_merchant_null_and_writes_no_match_tables(self):
         benefit = json.dumps({"benefits": [{
-            "benefit_id": "amex_platinum_travel", "title": "Travel", "terms": "terms"
-        }]})
-        transactions = "Date,Description,Amount\n09/20/2026,UBR TRIP 1234,12.34\n"
-        self._source("amex-platinum", "benefits", "guide.json", benefit)
-        self._source("amex-platinum", "transactions", "transactions.csv", transactions)
-
-        prepare(self.root, merchant_chooser=lambda descriptions, _: {descriptions[0]: "uber"})
-
-        with sqlite3.connect(self.root / "prepared/perkwatch.sqlite") as db:
-            match = db.execute("select merchant, confidence from merchant_matches").fetchone()
-        self.assertEqual(match, ("uber", "model"))
-
-    def test_prepare_stores_credit_and_merchant_matches_separately(self):
-        benefit = json.dumps({"benefits": [{
-            "benefit_id": "amex_platinum_lululemon", "title": "$300 lululemon Credit", "terms": "terms"
+            "benefit_id": "amex_platinum_300_lululemon_credit", "title": "$300 lululemon Credit", "terms": "terms"
         }]})
         transactions = (
             "Date,Description,Amount\n"
-            "09/20/2026,LULULEMON MEMBERSHIP CREDIT,-75.00\n"
+            "09/20/2026,Platinum Lululemon Credit,-75.00\n"
             "09/21/2026,WHOLE FOODS MARKET,12.34\n"
         )
         self._source("amex-platinum", "benefits", "guide.json", benefit)
@@ -238,12 +168,121 @@ class Phase1Test(unittest.TestCase):
         prepare(self.root)
 
         with sqlite3.connect(self.root / "prepared/perkwatch.sqlite") as db:
-            credit = db.execute("select benefit_id, confidence from credit_matches").fetchone()
-            merchant = db.execute(
-                "select merchant, confidence from merchant_matches where merchant = 'whole foods'"
-            ).fetchone()
-        self.assertEqual(credit, ("amex_platinum_lululemon", "explicit"))
-        self.assertEqual(merchant, ("whole foods", "exact"))
+            merchants = [row[0] for row in db.execute("select merchant from transactions")]
+            tables = {row[0] for row in db.execute("select name from sqlite_master where type = 'table'")}
+        self.assertEqual(merchants, [None, None])
+        self.assertFalse({"merchant_matches", "credit_matches"} & tables)
+
+    def test_prepare_tolerates_an_older_database_with_match_tables(self):
+        prepared = self.root / "prepared"
+        prepared.mkdir()
+        with sqlite3.connect(prepared / "perkwatch.sqlite") as db:
+            db.executescript("""
+                CREATE TABLE cards (card_id TEXT PRIMARY KEY, display_name TEXT NOT NULL);
+                CREATE TABLE sources (source_id TEXT PRIMARY KEY, card_id TEXT NOT NULL, kind TEXT NOT NULL,
+                  path TEXT NOT NULL, content_sha256 TEXT NOT NULL);
+                CREATE TABLE transactions (transaction_id TEXT PRIMARY KEY, card_id TEXT NOT NULL,
+                  posted_date TEXT NOT NULL, description TEXT NOT NULL, amount_minor INTEGER NOT NULL,
+                  currency TEXT NOT NULL, merchant TEXT, source_id TEXT NOT NULL);
+                CREATE TABLE merchant_matches (transaction_id TEXT PRIMARY KEY REFERENCES transactions(transaction_id),
+                  merchant TEXT, confidence TEXT NOT NULL);
+                INSERT INTO cards VALUES ('amex_platinum', 'Amex Platinum');
+                INSERT INTO sources VALUES ('s', 'amex_platinum', 'transactions', 'x.csv', 'x');
+                INSERT INTO transactions VALUES ('t', 'amex_platinum', '2026-01-01', 'OLD', 1, 'USD', 'uber', 's');
+                INSERT INTO merchant_matches VALUES ('t', 'uber', 'exact');
+                CREATE TABLE credit_matches (transaction_id TEXT PRIMARY KEY REFERENCES transactions(transaction_id),
+                  benefit_id TEXT NOT NULL, confidence TEXT NOT NULL);
+                INSERT INTO credit_matches VALUES ('t', 'amex_platinum_x', 'explicit');
+            """)
+        self._source("amex-platinum", "transactions", "t.csv", "Date,Description,Amount\n09/20/2026,COFFEE,4.00\n")
+
+        report = prepare(self.root)
+
+        self.assertEqual(report["cards"]["amex_platinum"]["transactions"], 1)
+
+    def test_tips_keep_only_catalog_benefits_with_https_sources(self):
+        path = self.root / "raw/amex-platinum/community/tips.json"
+        path.parent.mkdir(parents=True)
+        good = {"benefit_id": "amex_platinum_400_resy_credit", "tip": "Book  early in the quarter.",
+                "source_url": "https://example.test/1", "source_title": "Thread", "source_date": "2026-09-01",
+                "last_verified": "2026-09-20"}
+        path.write_text(json.dumps({"collected_on": "2026-09-26", "no_longer_works": [], "tips": [
+            good, dict(good),
+            {**good, "benefit_id": "amex_platinum_not_in_catalog"},
+            {**good, "tip": "Plain http source", "source_url": "http://example.test/2"},
+            {**good, "benefit_id": "chase_sapphire_preferred_benefit_001", "tip": "Other card"},
+        ]}), encoding="utf-8")
+
+        tips, stats = load_tips(path, {"amex_platinum_400_resy_credit"})
+
+        self.assertEqual(stats, {"processed": 1, "skipped": 4})
+        self.assertEqual(tips[0]["tip"], "Book early in the quarter.")
+        self.assertEqual(tips[0]["tip_id"], tip_id("amex_platinum_400_resy_credit", "Book early in the quarter."))
+        self.assertEqual(len(tips[0]["tip_id"]), 16)
+        self.assertEqual((tips[0]["source_title"], tips[0]["last_verified"]), ("Thread", "2026-09-20"))
+
+    def test_prepare_stores_tips_and_reports_catalog_gaps_and_unmatched_credit_lines(self):
+        benefit = json.dumps({"benefits": [{
+            "benefit_id": "amex_platinum_400_resy_credit", "title": "$400 Resy Credit", "terms": "Resy terms"
+        }]})
+        transactions = (
+            "Date,Description,Amount\n"
+            "03/20/2026,Platinum Resy Credit,-100.00\n"
+            "03/21/2026,Mystery Statement Credit,-10.00\n"
+            "03/22/2026,Store credit purchase,10.00\n"
+        )
+        self._source("amex-platinum", "benefits", "guide.json", benefit)
+        self._source("amex-platinum", "transactions", "t.csv", transactions)
+        self._source("chase-sapphire-preferred", "transactions", "t.csv",
+                     "Date,Description,Amount\n03/20/2026,Unknown Chase Credit,5.00\n03/21/2026,Refund credit,-5.00\n")
+        tips = self.root / "raw/amex-platinum/community/tips.json"
+        tips.parent.mkdir(parents=True)
+        tips.write_text(json.dumps({"tips": [
+            {"benefit_id": "amex_platinum_400_resy_credit", "tip": "Book on Resy.", "source_url": "https://example.test/r"},
+            {"benefit_id": "amex_platinum_unknown", "tip": "Dropped.", "source_url": "https://example.test/x"},
+        ]}), encoding="utf-8")
+
+        report = prepare(self.root)
+
+        amex = report["cards"]["amex_platinum"]
+        self.assertEqual((amex["tips_processed"], amex["tips_skipped"]), (1, 1))
+        self.assertEqual(amex["unmatched_credit_lines"], 1)
+        self.assertEqual(report["cards"]["chase_sapphire_preferred"]["unmatched_credit_lines"], 1)
+        self.assertNotIn("amex_platinum_400_resy_credit", amex["catalog_missing_terms"])
+        self.assertIn("amex_platinum_300_digital_entertainment_credit", amex["catalog_missing_terms"])
+        self.assertIn({"kind": "catalog_terms", "benefit_id": "amex_platinum_300_digital_entertainment_credit"},
+                      report["unresolved"])
+        saved = json.loads((self.root / "prepared/report.json").read_text())
+        self.assertEqual(saved["cards"]["amex_platinum"]["catalog_missing_terms"], amex["catalog_missing_terms"])
+        with sqlite3.connect(self.root / "prepared/perkwatch.sqlite") as db:
+            rows = db.execute("select card_id, benefit_id, tip from community_tips").fetchall()
+        self.assertEqual(rows, [("amex_platinum", "amex_platinum_400_resy_credit", "Book on Resy.")])
+
+    def test_rerun_reuses_extracted_fields_when_terms_are_unchanged(self):
+        document = json.dumps({"benefits": [
+            {"benefit_id": "amex_platinum_one", "title": "One", "terms": "One terms"},
+            {"benefit_id": "amex_platinum_two", "title": "Two", "terms": "Two terms"},
+        ]})
+        self._source("amex-platinum", "benefits", "guide.json", document)
+        calls = []
+
+        def extractor(text, _):
+            item = json.loads(text)["benefits"][0]
+            calls.append(item["benefit_id"])
+            return [{**item, "amount_minor": 700, "period": "monthly", "eligible_merchants": ["resy", "uber"],
+                     "enrollment_required": True}]
+
+        first = prepare(self.root, extractor=extractor)
+        second = prepare(self.root, extractor=extractor)
+
+        self.assertEqual(calls, ["amex_platinum_one", "amex_platinum_two"])
+        self.assertEqual(first["cards"]["amex_platinum"]["extraction_calls"], 2)
+        self.assertEqual(second["cards"]["amex_platinum"]["extraction_reused"], 2)
+        self.assertNotIn("extraction_calls", second["cards"]["amex_platinum"])
+        with sqlite3.connect(self.root / "prepared/perkwatch.sqlite") as db:
+            row = db.execute("select amount_minor, period, eligible_merchants, enrollment_required from benefits "
+                             "where benefit_id = 'amex_platinum_one'").fetchone()
+        self.assertEqual(row, (700, "monthly", "resy,uber", 1))
 
     def test_provider_csv_headers_and_dates_are_normalized(self):
         amex = self.root / "amex.csv"
@@ -291,7 +330,7 @@ class Phase1Test(unittest.TestCase):
         with sqlite3.connect(self.root / "prepared/perkwatch.sqlite") as db:
             self.assertEqual(db.execute("select count(*) from transactions").fetchone()[0], 2)
             self.assertEqual(db.execute("select amount_minor from transactions limit 1").fetchone()[0], 1234)
-            self.assertEqual(db.execute("select merchant from merchant_matches limit 1").fetchone()[0], "whole foods")
+            self.assertIsNone(db.execute("select merchant from transactions limit 1").fetchone()[0])
         self.assertEqual(report["cards"]["amex_platinum"]["transactions"], 1)
         self.assertTrue((self.root / "prepared/report.json").exists())
 
