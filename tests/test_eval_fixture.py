@@ -1,72 +1,54 @@
 from __future__ import annotations
 
-import unittest
+import json
 import sys
+import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parents[1] / "evals"))
-sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
-from fixture import FixtureEmbedder, open_fixture
-from perk_watch.runtime.calculations import calculate_benefit
-from perk_watch.runtime.agent import answer_with_db
-from harness import PlannedAgentClient, factual_checks, tool_plan
+ROOT = Path(__file__).parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "evals"))
+from fixture import STATEMENT_LINES, FixtureEmbedder, build_fixture
+from perk_watch.catalog import load_catalog
+from perk_watch.runtime.retrieval.search import search_benefits
+from suites import run_tracker
+
+CASES = json.loads((ROOT / "evals" / "cases.json").read_text(encoding="utf-8"))
 
 
-class EvaluationFixtureTests(unittest.TestCase):
+class EvalFixtureTest(unittest.TestCase):
     def setUp(self):
-        self.db = open_fixture()
+        self.db = build_fixture()
 
     def tearDown(self):
         self.db.close()
 
-    def test_refund_and_period_boundaries_match_cases(self):
-        monthly = calculate_benefit(self.db, "fixture:monthly-credit", as_of="2026-10-15")
-        self.assertEqual(monthly["used_amount_minor"], 0)
-        self.assertEqual(monthly["remaining_amount_minor"], 5000)
-        self.assertEqual(monthly["deadline"], "2026-10-31")
-        self.assertEqual(monthly["supporting_transaction_ids"], ["fixture:purchase", "fixture:refund"])
-        quarter = calculate_benefit(self.db, "fixture:quarterly-credit", as_of="2026-10-15")
-        self.assertEqual(quarter["deadline"], "2026-12-31")
-        account = calculate_benefit(self.db, "fixture:account-year-credit", as_of="2026-10-15",
-                                    account_year_start="2026-04-01")
-        self.assertEqual(account["deadline"], "2027-03-31")
+    def test_fixture_has_every_catalog_benefit_with_terms_and_embeddings(self):
+        ids = {row[0] for row in self.db.execute("SELECT benefit_id FROM benefits WHERE terms <> ''")}
+        self.assertEqual(ids, {b.benefit_id for b in load_catalog()})
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM benefit_embeddings").fetchone()[0], len(ids))
+        self.assertEqual(self.db.execute("SELECT COUNT(*) FROM transactions").fetchone()[0], len(STATEMENT_LINES))
 
-    def test_issuer_credit_fixture_uses_credits_not_purchases_and_requires_coverage(self):
-        resy = calculate_benefit(self.db, "fixture:resy-credit", as_of="2026-09-26")
-        self.assertEqual(resy["used_amount_minor"], 2000)
-        self.assertEqual(resy["supporting_transaction_ids"], ["fixture:resy-credit-posted"])
-        uber = calculate_benefit(self.db, "fixture:uber-statement-credit", as_of="2026-10-15")
-        self.assertEqual(uber["used_amount_minor"], 1500)
-        self.assertEqual(uber["supporting_transaction_ids"], ["fixture:uber-credit-posted"])
-        incomplete = calculate_benefit(self.db, "fixture:uber-statement-credit", as_of="2026-10-16")
-        self.assertEqual(incomplete["status"], "unknown")
-        self.assertIn("coverage is incomplete", incomplete["reason"])
+    def test_synthetic_tracker_cases_all_pass(self):
+        report = run_tracker(self.db, CASES["tracker"])
+        self.assertEqual(report["mismatches"], [])
+        self.assertEqual((report["status_accuracy"], report["amount_accuracy"]), (1.0, 1.0))
 
-    def test_issuer_credit_eval_cases_pass_deterministic_agent_plan(self):
-        import json
-        cases = json.loads((Path(__file__).parents[1] / "evals/cases.json").read_text())
-        targets = {"resy-quarterly-issuer-credit", "uber-monthly-issuer-credit",
-                   "uber-credit-incomplete-statement-coverage"}
-        for case in (item for item in cases if item["id"] in targets):
-            captured = []
-            answer = answer_with_db(self.db, case["question"],
-                                    client=PlannedAgentClient(tool_plan(case)),
-                                    embedder=FixtureEmbedder(),
-                                    on_tool_result=lambda tool, result: captured.append({"tool": tool, "result": result}))
-            self.assertEqual(factual_checks(case["expected"], captured, answer), [], case["id"])
+    def test_tracker_cases_cover_every_status(self):
+        statuses = {p["status"] for scenario in CASES["tracker"] for p in scenario["periods"]}
+        self.assertEqual(statuses, {"used", "partial", "missed", "pending", "unmarked", "at_risk", "open"})
 
-    def test_missing_amount_and_unknown_merchant_remain_unknown(self):
-        missing = calculate_benefit(self.db, "fixture:incomplete-credit", as_of="2026-10-15")
-        self.assertEqual(missing["status"], "unknown")
-        unclear = calculate_benefit(self.db, "fixture:unclear-credit", as_of="2026-10-15")
-        self.assertEqual(unclear["status"], "unknown")
+    def test_fixture_search_finds_clear_for_airport_security(self):
+        top = search_benefits(self.db, "airport security fast lane", embedder=FixtureEmbedder(), limit=1)
+        self.assertEqual(top[0]["benefit_id"], "amex_platinum_219_clear_credit")
 
-    def test_fixture_contains_official_sources_and_dated_community_idea(self):
-        self.assertIsNotNone(self.db.execute(
-            "SELECT 1 FROM sources WHERE source_id = 'fixture:airline-fee-terms'").fetchone())
-        idea = self.db.execute(
-            "SELECT idea_id, source_url, source_date FROM community_ideas").fetchone()
-        self.assertEqual(idea, ("fixture:idea-1", "https://example.test/community/1", "2026-09-01"))
+    def test_run_tracker_reports_mismatches(self):
+        scenario = {"name": "wrong", "as_of": "2026-09-26", "periods": [
+            {"benefit_id": "amex_platinum_400_resy_credit", "period": "Q1", "status": "missed", "used_minor": 0}],
+            "totals": {"captured_minor": 1}}
+        report = run_tracker(self.db, [scenario])
+        self.assertEqual(report["status_accuracy"], 0.0)
+        self.assertEqual(len(report["mismatches"]), 2)
 
 
 if __name__ == "__main__":

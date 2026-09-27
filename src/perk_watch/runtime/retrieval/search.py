@@ -8,6 +8,8 @@ from datetime import date
 from ...embeddings import EmbeddingProvider, content_hash, idea_hash
 
 _MIN_SCORE = 0.2
+# Display-name words too generic to identify one card on their own.
+_GENERIC_CARD_WORDS = {"card", "preferred"}
 
 
 def _source_date(path: str) -> date | None:
@@ -28,6 +30,17 @@ def _cosine(left: list[float], right: list[float]) -> float:
     if not left_norm or not right_norm:
         return 0.0
     return sum(a * b for a, b in zip(left, right)) / (left_norm * right_norm)
+
+
+def cards_named(db: sqlite3.Connection, question: str) -> set[str]:
+    """Card ids whose display name or id words ("sapphire", "chase", "amex", "platinum") appear in the question."""
+    words = set(re.findall(r"[a-z0-9]+", question.lower()))
+    named = set()
+    for card_id, display_name in db.execute("SELECT card_id, display_name FROM cards"):
+        card_words = set(re.findall(r"[a-z0-9]+", f"{display_name} {card_id}".lower())) - _GENERIC_CARD_WORDS
+        if words & card_words:
+            named.add(card_id)
+    return named
 
 
 class BenefitSearch:
@@ -69,6 +82,10 @@ class BenefitSearch:
             if cutoff and source_date and source_date > cutoff:
                 continue
             candidates.append(row)
+        if not card_id:
+            # A question that names a card is about that card's benefits.
+            named = cards_named(self.db, question)
+            candidates = [row for row in candidates if row[1] in named] or candidates
         if not candidates:
             return []
 

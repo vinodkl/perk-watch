@@ -1,16 +1,73 @@
-[
-  {"id":"direct-official-benefit","question":"What does the Amex Platinum airline fee credit cover?","search_question":"airline fee credit eligible incidental fees","relevant_benefit_ids":["fixture:airline-fee"],"expected":{"required_source_ids":["fixture:airline-fee-terms"]}},
-  {"id":"remaining-value-with-evidence","question":"How much of the travel credit remains, and which purchases counted?","search_question":"travel credit hotel purchase","relevant_benefit_ids":["fixture:travel-credit"],"expected":{"tool_results":{"evaluate_benefits":{"benefit_id":"fixture:travel-credit","status":"available","used_amount_minor":2000,"remaining_amount_minor":8000,"deadline":"2026-12-31","supporting_transaction_ids":["fixture:travel-purchase"]}},"required_source_ids":["fixture:travel-credit-terms"],"transaction_ids":["fixture:travel-purchase"]}},
-  {"id":"refund-and-negative-adjustment","relevant_benefit_ids":["fixture:monthly-credit"],"search_question":"monthly dining credit refund","question":"A $20 eligible purchase was refunded. How much of my monthly dining credit was used as of 2026-10-15?","expected":{"answer_fields":{"as_of":"2026-10-15"},"tool_results":{"evaluate_benefits":{"benefit_id":"fixture:monthly-credit","status":"available","used_amount_minor":0,"remaining_amount_minor":5000,"deadline":"2026-10-31","supporting_transaction_ids":["fixture:purchase","fixture:refund"]}},"transaction_ids":["fixture:purchase","fixture:refund"]}},
-  {"id":"unclear-merchant-unknown","relevant_benefit_ids":["fixture:unclear-credit"],"search_question":"unclear merchant credit unknown","question":"For the unclear merchant credit, can you confirm whether my unknown-merchant transaction counted as of 2026-10-15?","expected":{"answer_fields":{"as_of":"2026-10-15","must_preserve_unknown":true},"tool_results":{"evaluate_benefits":{"benefit_id":"fixture:unclear-credit","status":"unknown","used_amount_minor":null,"remaining_amount_minor":null,"deadline":"2026-10-31","supporting_transaction_ids":[]}}}},
-  {"id":"monthly-period-boundary","relevant_benefit_ids":["fixture:monthly-credit"],"search_question":"monthly dining credit","question":"For my monthly dining credit, as of 2026-10-15, what is the usage period and deadline?","expected":{"tool_results":{"evaluate_benefits":{"benefit_id":"fixture:monthly-credit","status":"available","used_amount_minor":0,"remaining_amount_minor":5000,"deadline":"2026-10-31","supporting_transaction_ids":["fixture:purchase","fixture:refund"]}},"answer_fields":{"as_of":"2026-10-15","deadline":"2026-10-31"}}},
-  {"id":"quarterly-period-boundary","relevant_benefit_ids":["fixture:quarterly-credit"],"search_question":"quarterly credit","question":"For the quarterly credit, as of 2026-10-15, what is left and when does this quarter end?","expected":{"tool_results":{"evaluate_benefits":{"benefit_id":"fixture:quarterly-credit","status":"available","used_amount_minor":0,"remaining_amount_minor":10000,"deadline":"2026-12-31","supporting_transaction_ids":[]}},"answer_fields":{"as_of":"2026-10-15","deadline":"2026-12-31"}}},
-  {"id":"yearly-period-boundary","relevant_benefit_ids":["fixture:yearly-credit"],"search_question":"calendar year credit","question":"For the calendar-year credit, as of 2026-10-15, when does it expire?","expected":{"tool_results":{"evaluate_benefits":{"benefit_id":"fixture:yearly-credit","status":"available","used_amount_minor":0,"remaining_amount_minor":10000,"deadline":"2026-12-31","supporting_transaction_ids":[]}},"answer_fields":{"as_of":"2026-10-15","deadline":"2026-12-31"}}},
-  {"id":"account-year-boundary","relevant_benefit_ids":["fixture:account-year-credit"],"search_question":"account year credit","question":"My Account-year credit's period began 2026-04-01. As of 2026-10-15, when does this benefit reset?","expected":{"tool_results":{"evaluate_benefits":{"benefit_id":"fixture:account-year-credit","status":"available","used_amount_minor":0,"remaining_amount_minor":10000,"deadline":"2027-03-31","supporting_transaction_ids":[]}},"answer_fields":{"as_of":"2026-10-15","account_year_start":"2026-04-01","deadline":"2027-03-31"}}},
-  {"id":"missing-benefit-information","relevant_benefit_ids":["fixture:incomplete-credit"],"search_question":"incomplete credit unknown amount","question":"For the incomplete credit, the amount or eligible merchants may be unknown. As of 2026-10-15, how much remains?","expected":{"tool_results":{"evaluate_benefits":{"benefit_id":"fixture:incomplete-credit","status":"unknown","used_amount_minor":null,"remaining_amount_minor":null,"deadline":null,"supporting_transaction_ids":[]}},"answer_fields":{"must_preserve_unknown":true}}},
-  {"id":"community-suggestion-separation","question":"What do cardholders suggest for using the travel credit, and what do the official terms say?","search_question":"travel credit hotel","relevant_benefit_ids":["fixture:travel-credit"],"community_benefit_id":"fixture:travel-credit","expected":{"tool_results":{"search_community_ideas":[{"idea_id":"fixture:idea-1","source_url":"https://example.test/community/1","source_date":"2026-09-01","label":"Community suggestion"}]},"required_source_ids":["fixture:travel-credit-terms"],"answer_fields":{"community_suggestion":true}}},
-  {"id":"community-search-empty","question":"Are there community suggestions for the calendar-year credit?","search_question":"calendar-year credit","community_benefit_id":"fixture:yearly-credit","expected":{"tool_results":{"search_community_ideas":[]},"answer_fields":{"must_not_invent_suggestions":true}}},
-  {"id":"resy-quarterly-issuer-credit","question":"How much Resy credit has posted this quarter as of 2026-09-26?","search_question":"Resy quarterly statement credit","relevant_benefit_ids":["fixture:resy-credit"],"expected":{"answer_fields":{"as_of":"2026-09-26"},"tool_results":{"evaluate_benefits":{"benefit_id":"fixture:resy-credit","status":"available","used_amount_minor":2000,"remaining_amount_minor":3000,"supporting_transaction_ids":["fixture:resy-credit-posted"]}}}},
-  {"id":"uber-monthly-issuer-credit","question":"How much Uber credit posted this month as of 2026-10-15?","search_question":"Uber monthly statement credit","relevant_benefit_ids":["fixture:uber-statement-credit"],"expected":{"answer_fields":{"as_of":"2026-10-15"},"tool_results":{"evaluate_benefits":{"benefit_id":"fixture:uber-statement-credit","status":"available","used_amount_minor":1500,"remaining_amount_minor":3500,"supporting_transaction_ids":["fixture:uber-credit-posted"]}}}},
-  {"id":"uber-credit-incomplete-statement-coverage","question":"Can you verify the Uber monthly credit as of 2026-10-16?","search_question":"Uber monthly statement credit","relevant_benefit_ids":["fixture:uber-statement-credit"],"expected":{"answer_fields":{"as_of":"2026-10-16","must_preserve_unknown":true},"tool_results":{"evaluate_benefits":{"benefit_id":"fixture:uber-statement-credit","status":"unknown","supporting_transaction_ids":[]}}}}
-]
+{
+  "tracker": [
+    {
+      "name": "late-september",
+      "as_of": "2026-09-26",
+      "marks": [["amex_platinum_200_uber_cash", "2026-01-01", 1500], ["amex_platinum_200_uber_cash", "2026-02-01", 1000]],
+      "periods": [
+        {"benefit_id": "amex_platinum_300_digital_entertainment_credit", "period": "Jan", "status": "partial", "used_minor": 2299, "why": "credit below the monthly amount"},
+        {"benefit_id": "amex_platinum_300_digital_entertainment_credit", "period": "Feb", "status": "used", "used_minor": 2500},
+        {"benefit_id": "amex_platinum_300_digital_entertainment_credit", "period": "Mar", "status": "missed", "used_minor": 0},
+        {"benefit_id": "amex_platinum_300_digital_entertainment_credit", "period": "Apr", "status": "used", "used_minor": 2500, "why": "two credit lines add up"},
+        {"benefit_id": "amex_platinum_300_digital_entertainment_credit", "period": "Aug", "status": "pending", "used_minor": 0, "why": "Amex statements stop Sep 5"},
+        {"benefit_id": "amex_platinum_300_digital_entertainment_credit", "period": "Sep", "status": "at_risk", "used_minor": 0, "why": "5 days left <= 7"},
+        {"benefit_id": "amex_platinum_walmart_monthly_membership_credit", "period": "Jul", "status": "missed", "used_minor": 0},
+        {"benefit_id": "amex_platinum_200_uber_cash", "period": "Jan", "status": "used", "used_minor": 1500, "why": "manual credit marked used"},
+        {"benefit_id": "amex_platinum_200_uber_cash", "period": "Feb", "status": "partial", "used_minor": 1000, "why": "manual credit marked with a partial amount"},
+        {"benefit_id": "amex_platinum_200_uber_cash", "period": "Mar", "status": "unmarked", "used_minor": 0, "why": "manual credit never marked"},
+        {"benefit_id": "amex_platinum_400_resy_credit", "period": "Q1", "status": "used", "used_minor": 10000},
+        {"benefit_id": "amex_platinum_400_resy_credit", "period": "Q2", "status": "partial", "used_minor": 5000, "why": "the Resy purchase line is not a credit"},
+        {"benefit_id": "amex_platinum_400_resy_credit", "period": "Q3", "status": "at_risk", "used_minor": 0, "why": "5 days left <= 14"},
+        {"benefit_id": "amex_platinum_300_lululemon_credit", "period": "Q1", "status": "missed", "used_minor": 0},
+        {"benefit_id": "amex_platinum_300_lululemon_credit", "period": "Q3", "status": "used", "used_minor": 7500},
+        {"benefit_id": "amex_platinum_600_hotel_credit", "period": "H1", "status": "partial", "used_minor": 20000},
+        {"benefit_id": "amex_platinum_600_hotel_credit", "period": "H2", "status": "open", "used_minor": 0, "why": "97 days left > 30"},
+        {"benefit_id": "chase_sapphire_preferred_benefit_010", "period": "2026", "status": "used", "used_minor": 10000, "why": "Chase credits are positive; the negative reversal is ignored"},
+        {"benefit_id": "chase_sapphire_preferred_benefit_001", "period": "Aug", "status": "unmarked", "used_minor": 0}
+      ],
+      "totals": {"captured_minor": 74799, "missed_minor": 37266, "at_risk_minor": 16295},
+      "unmatched_credit_lines": 1
+    },
+    {
+      "name": "december",
+      "as_of": "2026-12-05",
+      "marks": [],
+      "periods": [
+        {"benefit_id": "amex_platinum_200_uber_cash", "period": "Dec", "status": "open", "used_minor": 0, "amount_minor": 3500, "why": "December Uber Cash is $35"},
+        {"benefit_id": "amex_platinum_200_uber_cash", "period": "Nov", "status": "unmarked", "used_minor": 0, "amount_minor": 1500},
+        {"benefit_id": "amex_platinum_400_resy_credit", "period": "Q3", "status": "pending", "used_minor": 0, "why": "statement gap after Sep 5"},
+        {"benefit_id": "amex_platinum_219_clear_credit", "period": "2026", "status": "at_risk", "used_minor": 0, "why": "27 days left <= 45"}
+      ],
+      "totals": {"captured_minor": 72299, "missed_minor": 36766, "at_risk_minor": 133900},
+      "unmatched_credit_lines": 1
+    }
+  ],
+  "retrieval": [
+    {"question": "I pay for Disney+ and Hulu, is there a credit for that?", "benefit_id": "amex_platinum_300_digital_entertainment_credit"},
+    {"question": "Do I get anything back for a Walmart membership?", "benefit_id": "amex_platinum_walmart_monthly_membership_credit"},
+    {"question": "Is there a quarterly restaurant dining credit?", "benefit_id": "amex_platinum_400_resy_credit"},
+    {"question": "Which benefit covers fast lane airport security membership?", "benefit_id": "amex_platinum_219_clear_credit"},
+    {"question": "Can I get my checked bag fees reimbursed?", "benefit_id": "amex_platinum_200_airline_fee_credit"},
+    {"question": "Is there a credit for athletic clothing?", "benefit_id": "amex_platinum_300_lululemon_credit"},
+    {"question": "Does my Sapphire card give money back on hotels booked through the bank's travel site?", "benefit_id": "chase_sapphire_preferred_benefit_010"},
+    {"question": "Is my gym membership covered?", "benefit_id": "amex_platinum_300_equinox_credit"}
+  ],
+  "chat": [
+    {"id": "resy-use-before-reset", "benefit_id": "amex_platinum_400_resy_credit",
+     "question": "How can I use what is left before it resets?",
+     "checks": ["remaining_amount", "deadline", "no_unverified_amounts", "community_labelled"]},
+    {"id": "walmart-worth-it", "benefit_id": "amex_platinum_walmart_monthly_membership_credit",
+     "question": "I keep missing this. Is it worth it for me?",
+     "checks": ["remaining_amount", "deadline", "no_unverified_amounts", "community_labelled"]},
+    {"id": "uber-cash-month-end", "benefit_id": "amex_platinum_200_uber_cash",
+     "question": "What should I do with this before the month ends?",
+     "checks": ["remaining_amount", "deadline", "no_unverified_amounts", "community_labelled"]},
+    {"id": "wallet-clear-lookup", "benefit_id": null,
+     "question": "Which credit covers airport security fast lanes?",
+     "expect_tool": "search_terms", "expect_benefit": "amex_platinum_219_clear_credit", "expect_mention": "CLEAR",
+     "checks": ["expected_tool", "names_benefit", "no_unverified_amounts", "community_labelled"]},
+    {"id": "resy-stacking", "benefit_id": "amex_platinum_400_resy_credit",
+     "question": "Can I stack this with my Digital Entertainment credit?",
+     "checks": ["no_unverified_amounts", "community_labelled"]}
+  ]
+}
