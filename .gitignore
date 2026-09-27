@@ -29,3 +29,7 @@ web/tsconfig.tsbuildinfo
 *secrets*
 *password*
 *token*
+
+# Internal working notes (design history, plans, demo scripts). README.md is
+# the tracked, up-to-date summary for anyone outside this working copy.
+/docs/
