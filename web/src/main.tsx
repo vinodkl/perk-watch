@@ -269,9 +269,14 @@ function EvalsAdmin() {
   const [snapshot, setSnapshot] = React.useState<EvalsSnapshot | null>(null)
   const [confirmName, setConfirmName] = React.useState<string | null>(null)
   const [openPanels, setOpenPanels] = React.useState<Set<string>>(new Set())
+  const seeded = React.useRef(false)
   React.useEffect(() => {
     let live = true
-    const poll = () => api<EvalsSnapshot>('/api/admin/evals').then(s => { if (live) setSnapshot(s) }).catch(() => {})
+    const poll = () => api<EvalsSnapshot>('/api/admin/evals').then(s => {
+      if (!live) return
+      setSnapshot(s)
+      if (!seeded.current) { seeded.current = true; setOpenPanels(new Set(Object.keys(s).map(name => `${name}:cases`))) }
+    }).catch(() => {})
     poll()
     const id = setInterval(poll, 1500)
     return () => { live = false; clearInterval(id) }
