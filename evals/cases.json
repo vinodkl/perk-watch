@@ -68,6 +68,22 @@
      "checks": ["expected_tool", "names_benefit", "no_unverified_amounts", "community_labelled"]},
     {"id": "resy-stacking", "benefit_id": "amex_platinum_400_resy_credit",
      "question": "Can I stack this with my Digital Entertainment credit?",
-     "checks": ["no_unverified_amounts", "community_labelled"]}
+     "checks": ["no_unverified_amounts", "community_labelled"]},
+    {
+      "id": "wallet-compare-multi-step",
+      "benefit_id": null,
+      "question": "Compare my Resy and lululemon credits: which have I used more reliably this year, and one community idea for the weaker one?",
+      "expect_tool": "get_benefit_status",
+      "min_tool_calls": 2,
+      "checks": ["expected_tool", "min_tool_calls", "no_unverified_amounts", "community_labelled"]
+    },
+    {
+      "id": "weekly-briefing",
+      "kind": "briefing",
+      "benefit_id": null,
+      "question": "Write this week's plan.",
+      "expect_tool": "get_community_tips",
+      "checks": ["expected_tool", "names_top_at_risk", "no_unverified_amounts", "community_labelled"]
+    }
   ]
 }

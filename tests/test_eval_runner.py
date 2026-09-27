@@ -83,6 +83,17 @@ class ChatSuiteTest(unittest.TestCase):
             self.assertEqual(check_answer(case, reply, status), {"remaining_amount": True, "deadline": True}, answer)
 
 
+    def test_min_tool_calls_and_top_at_risk_checks(self):
+        reply = {"answer": "- **Walmart+ Monthly Membership Credit**: $12.95 left", "unverified_amounts": [],
+                 "tool_trace": [{"tool": "get_benefit_status"}, {"tool": "get_community_tips"}]}
+        case = {"checks": ["min_tool_calls", "names_top_at_risk"], "min_tool_calls": 2, "top_title": "Walmart+ Monthly Membership Credit"}
+        self.assertEqual(check_answer(case, reply, None), {"min_tool_calls": True, "names_top_at_risk": True})
+        case = {"checks": ["min_tool_calls", "names_top_at_risk"], "min_tool_calls": 3, "top_title": "$200 Uber Cash"}
+        self.assertEqual(check_answer(case, reply, None), {"min_tool_calls": False, "names_top_at_risk": False})
+        case = {"checks": ["names_top_at_risk"], "top_title": ""}  # nothing at risk: nothing to name
+        self.assertEqual(check_answer(case, reply, None), {"names_top_at_risk": True})
+
+
 class RetrievalAndKeyTest(unittest.TestCase):
     def test_retrieval_recall_counts_hits_and_misses(self):
         db = build_fixture()

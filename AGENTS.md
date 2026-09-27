@@ -27,7 +27,7 @@ Community tips collection is an explicit offline action (`.agents/skills/communi
 
 ## Runtime
 
-Runtime reads prepared card data only. It does not collect issuer data, import statements, contact Reddit, or change prepared data while answering a question. The one runtime write is user-initiated: "mark used" for manually tracked credits goes to `PERKWATCH_DATA_DIR/user/profile.json`. Keep transactions in SQLite and use embedding search only for benefit text and community ideas.
+Runtime reads prepared card data only. It does not collect issuer data, import statements, contact Reddit, or change prepared data while answering a question. The one runtime write is user-initiated: "mark used" for manually tracked credits goes to `PERKWATCH_DATA_DIR/user/profile.json`. Chat may *propose* a mark with `propose_mark`; only the user's tap writes it. Keep transactions in SQLite and use embedding search only for benefit text and community ideas.
 
 ## Safety boundaries
 

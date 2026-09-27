@@ -11,7 +11,8 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from perk_watch.catalog import load_catalog, match_credit
 from perk_watch.prepare.storage import connect
-from perk_watch.runtime.chat import benefit_chat, summarize_result, unverified_amounts, wallet_briefing, BRIEFING_SYSTEM, MODEL
+from perk_watch.runtime.chat import (benefit_chat, summarize_result, unverified_amounts, wallet_ask, wallet_briefing,
+                                     BRIEFING_SYSTEM, MODEL)
 from perk_watch.runtime.profile import load_marks, toggle_mark
 from perk_watch.runtime.tracker import track
 
@@ -204,6 +205,31 @@ class ChatTest(unittest.TestCase):
         second = client.requests[1]["messages"]
         self.assertEqual(sum(1 for m in second if isinstance(m, dict) and m.get("role") == "tool"), 6)
         self.assertNotIn("tools", client.requests[1])
+
+    def _propose(self, benefit_id, marks=None):
+        call = SimpleNamespace(id="c1", function=SimpleNamespace(name="propose_mark", arguments=json.dumps({"benefit_id": benefit_id})))
+        client = FakeClient([_message(tool_calls=[call]), _message("Tap the button to confirm.")])
+        return benefit_chat(fixture_db([]), benefit_id, [{"role": "user", "content": "I used it"}],
+                            as_of=date(2026, 9, 26), marks=marks, client=client)
+
+    def test_propose_mark_offers_the_current_manual_period(self):
+        reply = self._propose(UBER_CASH)
+        self.assertEqual(len(reply["proposals"]), 1)
+        proposal = reply["proposals"][0]
+        self.assertEqual((proposal["benefit_id"], proposal["period_start"], proposal["amount"]), (UBER_CASH, "2026-09-01", 15.0))
+        self.assertTrue(reply["tool_trace"][0]["summary"].startswith("offered to mark $200 Uber Cash"))
+
+    def test_propose_mark_refuses_auto_credits_and_marked_periods(self):
+        self.assertEqual(self._propose(RESY)["proposals"], [])
+        self.assertEqual(self._propose(UBER_CASH, marks={(UBER_CASH, "2026-09-01"): 1500})["proposals"], [])
+
+    def test_wallet_ask_system_prompt_requires_tool_calls_for_history_questions(self):
+        db = fixture_db([])
+        client = FakeClient([_message("- **$300 lululemon Credit**: not used this quarter.")])
+        wallet_ask(db, [{"role": "user", "content": "Have I used my lululemon credit reliably this year?"}],
+                  as_of=date(2026, 9, 26), client=client)
+        system = client.requests[0]["messages"][0]["content"]
+        self.assertIn("call get_benefit_status for each credit involved", system)
 
 
 if __name__ == "__main__":

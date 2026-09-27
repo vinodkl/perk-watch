@@ -106,7 +106,7 @@ class ApiTest(unittest.TestCase):
         messages = [{"role": "user", "content": "What should I do?"}]
         reply = client.post(f"/api/benefits/{RESY}/chat", json={"messages": messages, "as_of": AS_OF}).json()
         self.assertEqual(reply, {"answer": "You have $100 left on Resy.", "tool_trace": [], "unverified_amounts": [],
-                                 "amounts_checked": 1, "model": "gpt-4o-mini"})
+                                 "amounts_checked": 1, "model": "gpt-4o-mini", "proposals": []})
         self.assertIn("BENEFIT CONTEXT", fake.requests[0]["messages"][1]["content"])
         reply = client.post("/api/ask", json={"messages": messages, "as_of": AS_OF}).json()
         self.assertEqual(reply["answer"], "Use Resy first.")
@@ -142,6 +142,13 @@ class ApiTest(unittest.TestCase):
         self.assertEqual(self.client.get("/api/status").json(), {
             "last_preparation_time": "2026-09-20T12:00:00+00:00",
             "data_through": {AMEX: "2026-09-19", CHASE: "2026-09-18"}})
+
+    def test_mark_with_used_true_never_unmarks(self):
+        body = {"period_start": "2026-09-01", "as_of": AS_OF, "used": True}
+        first = self.client.post(f"/api/benefits/{UBER_CASH}/mark", json=body).json()
+        second = self.client.post(f"/api/benefits/{UBER_CASH}/mark", json=body).json()
+        marked = lambda state: next(p for p in state["periods"] if p["start"] == "2026-09-01")["marked"]
+        self.assertEqual((marked(first), marked(second)), (True, True))
 
     def test_runtime_connection_is_read_only(self):
         with closing(database(self.root)) as db:

@@ -18,7 +18,8 @@ type Tracker = {
 }
 type Tip = { tip: string; source_url: string; source_title?: string; source_date?: string; last_verified?: string }
 type Step = { tool: string; args: Record<string, unknown>; summary: string }
-type Reply = { answer: string; tool_trace: Step[]; unverified_amounts: string[]; amounts_checked: number; model: string }
+type Proposal = { benefit_id: string; title: string; period_start: string; period_label: string; amount: number }
+type Reply = { answer: string; tool_trace: Step[]; unverified_amounts: string[]; amounts_checked: number; model: string; proposals?: Proposal[] }
 type Msg = { role: 'user' | 'assistant'; content: string; reply?: Reply; pending?: boolean }
 
 const PERIODS = ['monthly', 'quarterly', 'semiannual', 'annual'] as const
@@ -38,6 +39,8 @@ async function api<T>(url: string, body?: unknown): Promise<T> {
   if (!response.ok) throw Error(data.detail || `Request failed (${response.status})`)
   return data as T
 }
+
+function Sparkle() { return <span className="sparkle" aria-hidden="true">✨</span> }
 
 function CountUp({ value }: { value: number }) {
   const [shown, setShown] = React.useState(value)
@@ -64,6 +67,7 @@ function App() {
   const [asOf, setAsOf] = React.useState(params.get('as_of') || '')
   const [benefitId, setBenefitId] = React.useState(params.get('benefit') || '')
   const [askOpen, setAskOpen] = React.useState(false)
+  const [askQuestion, setAskQuestion] = React.useState<{ text: string; id: number } | undefined>()
   const [filter, setFilter] = React.useState<'all' | 'missed' | 'manual'>('all')
   const reload = React.useCallback(() => api<Tracker>(`/api/tracker${asOf ? `?as_of=${encodeURIComponent(asOf)}` : ''}`)
     .then(t => { setTracker(t); setError('') }).catch(e => setError(e.message)), [asOf])
@@ -104,6 +108,7 @@ function App() {
         <div className="wallet-intro"><h1>{greeting()}, Vinod.</h1><p>{atRisk.length ? <>{atRisk.length} credit{atRisk.length === 1 ? '' : 's'} expire{atRisk.length === 1 ? 's' : ''} in the next few days. Here's what's left and what slipped by.</> : <>Nothing is about to expire. Here's how your credits are tracking this year.</>}</p></div>
         <div className="card-stack" aria-label="Your cards">{cards.slice(0, 2).map((card, i) => <article className={`bank-card bank-card-${i}`} key={card}><span className="chip"/><b>{card}</b><small>{tracker.benefits.filter(b => b.card === card).length} CREDITS</small></article>)}</div>
         <section className="wallet-summary">
+          <div className="provenance"><span className="source statements">FROM YOUR STATEMENTS</span></div>
           <p>At risk now <b className="orange-text"><CountUp value={tracker.totals.at_risk_minor}/></b></p>
           <p>Missed this year <b className="mustard-text"><CountUp value={tracker.totals.missed_minor}/></b></p>
           <p>Captured this year <b className="green-text"><CountUp value={tracker.totals.captured_minor}/></b></p>
@@ -117,8 +122,10 @@ function App() {
         <div className="welcome"><span className="eyebrow">BENEFITS · {cards.length} CARDS · {tracker.benefits.length} CREDITS</span>
           <h2>{atRisk.length ? `${money(tracker.totals.at_risk_minor)} is about to expire.` : 'Your credits at a glance.'}</h2>
           <p>{tracker.totals.missed_minor ? `You've let ${money(tracker.totals.missed_minor)} slip by so far this year. Let's not add to it.` : 'Nothing missed so far this year.'}</p></div>
+        <AskDock tracker={tracker} hidden={askOpen || !!selected} onOpen={() => setAskOpen(true)}
+          onAsk={text => { setAskQuestion({ text, id: Date.now() }); setAskOpen(true) }}/>
         <Briefing tracker={tracker}/>
-        {!!atRisk.length && <section className="group expiring"><h2 className="eyebrow">EXPIRING SOON · {atRisk.length}</h2><div className="coupon-list">{atRisk.map(b => <Coupon key={b.benefit_id} benefit={b} onOpen={openBenefit}/>)}</div></section>}
+        {!!atRisk.length && <section className="group expiring"><h2 className="eyebrow">EXPIRING SOON · {atRisk.length} <span className="source statements">FROM STATEMENTS</span></h2><div className="coupon-list">{atRisk.map(b => <Coupon key={b.benefit_id} benefit={b} onOpen={openBenefit}/>)}</div></section>}
         <div className="filter-row">{(['all', 'missed', 'manual'] as const).map(f => <button key={f} className={`filter-chip ${filter === f ? 'on' : ''}`} onClick={() => setFilter(f)}>{{ all: 'All credits', missed: 'Missed something', manual: 'Manually tracked' }[f]}</button>)}</div>
         {cards.map(card => {
           const list = tracker.benefits.filter(b => b.card === card && keep(b))
@@ -137,8 +144,8 @@ function App() {
       </section>
     </main>
     {selected && <BenefitRail benefit={selected} asOf={tracker.as_of} dataThrough={tracker.data_through[selected.card_id]} onClose={closeBenefit} onChanged={reload}/>}
-    {askOpen && <AskRail asOf={tracker.as_of} onClose={() => setAskOpen(false)}/>}
-    <button className="ask-float" onClick={() => setAskOpen(true)}>Ask PerkWatch — “what should I use this week?” <span>→</span></button>
+    {askOpen && <AskRail asOf={tracker.as_of} suggestions={askSuggestions(tracker)} initialQuestion={askQuestion}
+      onChanged={reload} onClose={() => { setAskOpen(false); setAskQuestion(undefined) }}/>}
   </>
 }
 
@@ -164,9 +171,58 @@ function Briefing({ tracker }: { tracker: Tracker }) {
   </section>
 }
 
+function askSuggestions(t: Tracker): string[] {
+  const risk = t.benefits.filter(b => b.current.status === 'at_risk').sort((a, b) => b.current.remaining_minor - a.current.remaining_minor)[0]
+  const missed = [...t.benefits].sort((a, b) => b.ytd.missed_minor - a.ytd.missed_minor)[0]
+  const manual = t.benefits.find(b => b.tracking === 'manual' && !b.current.marked && b.current.remaining_minor > 0)
+  return [
+    'What should I use this week?',
+    risk && `How do I use ${risk.title} before ${fmtDate(risk.current.end)}?`,
+    missed?.ytd.missed_minor && `Why do I keep missing ${missed.title}, and what would help?`,
+    manual && `I used my ${manual.title} this ${PERIOD_UNIT[manual.period]}`,
+    'Which credit covers airport security fast lanes?',
+  ].filter((s): s is string => !!s)
+}
+
+function AskDock({ tracker, hidden, onOpen, onAsk }: { tracker: Tracker; hidden: boolean; onOpen: () => void; onAsk: (question: string) => void }) {
+  const [draft, setDraft] = React.useState('')
+  const [collapsed, setCollapsed] = React.useState(false)
+  const hero = React.useRef<HTMLElement>(null)
+  React.useEffect(() => {
+    if (hidden || !hero.current) { setCollapsed(false); return }
+    const observer = new IntersectionObserver(([entry]) => setCollapsed(!entry.isIntersecting), { threshold: 0.05 })
+    observer.observe(hero.current)
+    return () => observer.disconnect()
+  }, [hidden])
+  if (hidden) return null
+  const atRisk = tracker.benefits.filter(b => b.current.status === 'at_risk').length
+  const chips = askSuggestions(tracker).slice(0, 2)
+  const submit = (question: string) => { if (question.trim()) { onAsk(question.trim()); setDraft('') } }
+  return <>
+    <section className="ask-agent-hero" ref={hero}>
+      <div className="ask-dock-head">
+        <span className="eyebrow"><Sparkle/> ASK PERKWATCH · AI AGENT</span>
+        {atRisk > 0 && <span className="ask-dock-badge">{atRisk} EXPIRING</span>}
+      </div>
+      <p className="ask-dock-subtitle">Your wallet-aware agent for deciding what to use, what counts, and what to do next.</p>
+      <form className="ask-dock-form" onSubmit={e => { e.preventDefault(); submit(draft) }}>
+        <input value={draft} onChange={e => setDraft(e.target.value)} placeholder="Ask about any credit…" maxLength={2000}/>
+        <button disabled={!draft.trim()} aria-label="Ask">→</button>
+      </form>
+      <div className="ask-dock-chips">{chips.map(s => <button key={s} className="ask-dock-chip" title={s} onClick={() => submit(s)}>{s}</button>)}</div>
+      <small className="ask-dock-trust">Amounts and dates come from your tracker, not the model.</small>
+    </section>
+    {collapsed && <button className={`ask-launcher ${collapsed ? 'visible' : ''}`} onClick={onOpen} aria-label="Open Ask PerkWatch">
+      <span><Sparkle/></span><b>Ask PerkWatch</b>{atRisk > 0 && <em>{atRisk}</em>}
+    </button>}
+  </>
+}
+
 function Legend() {
   const items: [Period['status'], string][] = [['used', 'used'], ['partial', 'partly used'], ['missed', 'missed'], ['at_risk', 'at risk'], ['open', 'open'], ['unmarked', 'manual, not marked'], ['pending', 'waiting for statement']]
-  return <div className="legend">{items.map(([status, label]) => <span key={status}><i className={`dot ${status}`}>{GLYPH[status]}</i>{label}</span>)}</div>
+  return <div className="legend">{items.map(([status, label]) => <span key={status}><i className={`dot ${status}`}>{GLYPH[status]}</i>{label}</span>)}
+    <p className="ai-note"><Sparkle/> marks AI-written parts. Amounts and statuses are computed from your statements. AI writes the weekly plan, answers questions and summarizes community tips, and every dollar amount it writes is checked against your data.</p>
+  </div>
 }
 
 function Dots({ periods, large, onToggle }: { periods: Period[]; large?: boolean; onToggle?: (p: Period) => void }) {
@@ -192,7 +248,7 @@ function Coupon({ benefit: b, onOpen }: { benefit: Benefit; onOpen: (id: string)
     <p className="coupon-subtitle">{b.card} · {money(c.used_minor)} of {money(c.amount_minor)} used this {PERIOD_UNIT[b.period]}</p>
     {b.periods.length > 1 && <div className="coupon-dots"><Dots periods={b.periods}/></div>}
     <p className="coupon-reason">{historyLine(b)}</p>
-    <div className="coupon-actions"><button onClick={() => onOpen(b.benefit_id)}>Ask about it</button><button className="secondary" onClick={() => onOpen(b.benefit_id)}>Details</button></div></div>
+    <div className="coupon-actions"><button onClick={() => onOpen(b.benefit_id)}><Sparkle/> Help me use {money(c.remaining_minor)}</button></div></div>
     <div className="coupon-stub"><span className="days-stamp"><b>{c.days_left}</b><small>DAYS LEFT</small></span><strong><CountUp value={c.remaining_minor}/></strong><small>left to claim</small></div></article>
 }
 
@@ -208,32 +264,45 @@ function BenefitStub({ benefit: b, onOpen }: { benefit: Benefit; onOpen: (id: st
 function BenefitRail({ benefit: b, asOf, dataThrough, onClose, onChanged }: { benefit: Benefit; asOf: string; dataThrough: string | null; onClose: () => void; onChanged: () => void }) {
   const c = b.current
   const credits = b.periods.flatMap(p => p.credits.map(credit => ({ ...credit, label: p.label })))
+  const nextMove = c.remaining_minor > 0
+    ? `Claim ${money(c.remaining_minor)} from this benefit before ${fmtDate(c.end)}.`
+    : `This benefit is fully used for the current ${PERIOD_UNIT[b.period]}.`
   async function toggle(p: Period) {
     await api(`/api/benefits/${encodeURIComponent(b.benefit_id)}/mark`, { period_start: p.start, as_of: asOf })
     onChanged()
   }
   return <>
     <button className="rail-scrim" aria-label="Close benefit" onClick={onClose}/>
-    <aside className="evidence-rail" aria-label={b.title}><header><b>▤ &nbsp;{b.card}</b><button onClick={onClose} aria-label="Close">×</button></header>
-      <div className="rail-content"><h2>{b.title}</h2>
-        <p className="rail-subtitle">{PERIOD_NAME[b.period]} · {b.tracking === 'manual' ? 'tracked by you' : 'tracked from statement credits'}</p>
-        <section className="receipt"><h3>{c.label} · CURRENT PERIOD</h3><p>{fmtDate(c.start)} – {fmtDate(c.end)} · STATEMENTS THROUGH {fmtDate(dataThrough)}</p>
-          <Dots periods={b.periods} large onToggle={b.tracking === 'manual' ? toggle : undefined}/>
-          {b.tracking === 'manual' && <p className="rail-hint">Tap a period to mark it used (or unmark it).</p>}
-          <div className="receipt-line"><span>THIS {PERIOD_UNIT[b.period].toUpperCase()}</span><b>{money(c.amount_minor)}</b></div>
-          {credits.map(credit => <div className="receipt-line" key={credit.transaction_id}><span>{fmtDate(credit.date)} statement credit <i>{credit.label}</i></span><b>−{money(credit.amount_minor)}</b></div>)}
-          {!credits.length && b.tracking === 'auto' && <div className="receipt-line"><span>No statement credits yet this year</span><b>—</b></div>}
-          <div className="receipt-line"><span>MISSED THIS YEAR</span><b className="mustard-text">{money(b.ytd.missed_minor)}</b></div>
-          <div className="receipt-total"><b>{c.status === 'at_risk' ? `LEFT · ${c.days_left} DAYS` : 'LEFT TO CLAIM'}</b><strong>{money(c.remaining_minor)}</strong></div>
-        </section>
-        <section className="chat-card"><small className="section-label">ASK ABOUT THIS BENEFIT</small>
+    <aside className="evidence-rail benefit-guide-rail" aria-label={b.title}><header><b><Sparkle/> Benefit Guide <small>{b.card}</small></b><button onClick={onClose} aria-label="Close">×</button></header>
+      <div className="rail-content">
+        <section className="chat-card">
           <Chat storeKey={b.benefit_id} endpoint={`/api/benefits/${encodeURIComponent(b.benefit_id)}/chat`} asOf={asOf}
-            suggestions={c.remaining_minor > 0 ? ['How can I use what is left before it resets?', 'What counts for this credit?', 'Is this worth it for me?'] : ['What counts for this credit?', 'Any tips for next period?']}
-            placeholder={`Ask anything about ${b.title}…`} emptyNote="answered from this benefit's context, no tools needed"/></section>
-        <Community benefitId={b.benefit_id}/>
-        <details className="fine-print"><summary><small>THE FINE PRINT · OFFICIAL TERMS</small></summary><p>{b.terms || 'No terms text in prepared data.'}</p></details>
+            suggestions={b.tracking === 'manual' && !c.marked ? ['I already used this one', 'What counts for this credit?', 'Any tips for next period?']
+              : c.remaining_minor > 0 ? ['How can I use what is left before it resets?', 'What counts for this credit?', 'Is this worth it for me?'] : ['What counts for this credit?', 'Any tips for next period?']}
+            placeholder={`Ask anything about ${b.title}…`} emptyNote="answered from this benefit's context, no tools needed"
+            composerNote="Amounts come from your statements, not the model." onChanged={onChanged}
+            intro={<div className="benefit-guide-intro">
+              <div className="benefit-guide-title"><div><h2>{b.title}</h2><p>{PERIOD_NAME[b.period]} · {b.tracking === 'manual' ? 'tracked by you' : 'tracked from statement credits'}</p></div>
+                <strong>{c.days_left} days left</strong></div>
+              <section className="best-next-move"><small><Sparkle/> BEST NEXT MOVE</small><h3>{nextMove}</h3>
+                <p>Ask for eligible ways to use it, or compare practical community ideas with the official terms.</p></section>
+              <details className="benefit-guide-section community-section" open><summary><span><b>Community ideas</b><small>Practical tips · not official terms</small></span><span className="toggle-indicator" aria-hidden="true">⌄</span></summary>
+                <Community benefitId={b.benefit_id}/>
+              </details>
+              <details className="benefit-guide-section benefit-details"><summary><span><b>Benefit details</b><small>Usage and statement history</small></span><span className="toggle-indicator" aria-hidden="true">⌄</span></summary>
+                <section className="receipt"><h3>{c.label} · CURRENT PERIOD</h3><p>{fmtDate(c.start)} – {fmtDate(c.end)} · STATEMENTS THROUGH {fmtDate(dataThrough)}</p>
+                  <Dots periods={b.periods} large onToggle={b.tracking === 'manual' ? toggle : undefined}/>
+                  {b.tracking === 'manual' && <p className="rail-hint">Tap a period to mark it used (or unmark it).</p>}
+                  <div className="receipt-line"><span>THIS {PERIOD_UNIT[b.period].toUpperCase()}</span><b>{money(c.amount_minor)}</b></div>
+                  {credits.map(credit => <div className="receipt-line" key={credit.transaction_id}><span>{fmtDate(credit.date)} statement credit <i>{credit.label}</i></span><b>−{money(credit.amount_minor)}</b></div>)}
+                  {!credits.length && b.tracking === 'auto' && <div className="receipt-line"><span>No statement credits yet this year</span><b>—</b></div>}
+                  <div className="receipt-line"><span>MISSED THIS YEAR</span><b className="mustard-text">{money(b.ytd.missed_minor)}</b></div>
+                  <div className="receipt-total"><b>{c.status === 'at_risk' ? `LEFT · ${c.days_left} DAYS` : 'LEFT TO CLAIM'}</b><strong>{money(c.remaining_minor)}</strong></div>
+                </section>
+              </details>
+              <details className="benefit-guide-section fine-print"><summary><span><b>Fine print</b><small>Official terms</small></span><span className="toggle-indicator" aria-hidden="true">⌄</span></summary><p>{b.terms || 'No terms text in prepared data.'}</p></details>
+            </div>}/></section>
       </div>
-      <footer>Amounts come from your statements, not the model.</footer>
     </aside>
   </>
 }
@@ -247,7 +316,7 @@ function Community({ benefitId }: { benefitId: string }) {
   }, [benefitId])
   return <article className="community-note"><small>WHAT THE COMMUNITY DOES <b>NOT OFFICIAL TERMS</b></small>
     {error ? <p>{error}</p> : !data ? <p>Reading community tips…</p> : !data.tips.length ? <p>No community tips collected for this benefit yet.</p> : <>
-      <p className="blurb">{data.blurb}</p>
+      {data.blurb && <><span className="source ai">AI SUMMARY OF THE TIPS BELOW</span><p className="blurb">{data.blurb}</p></>}
       <ul className="tips">{data.tips.map((tip, i) => <li key={i}>{tip.tip} <a href={tip.source_url} target="_blank" rel="noreferrer">{tip.source_title || new URL(tip.source_url).hostname} ↗</a>{tip.last_verified && <small> · verified {fmtDate(tip.last_verified)}</small>}</li>)}</ul></>}
   </article>
 }
@@ -266,13 +335,32 @@ function AgentTrace({ reply, emptyNote }: { reply: Reply; emptyNote: string }) {
   </div>
 }
 
-function Chat({ storeKey, endpoint, asOf, suggestions, placeholder, emptyNote }: { storeKey: string; endpoint: string; asOf: string; suggestions: string[]; placeholder: string; emptyNote: string }) {
+function ProposalButton({ proposal: p, asOf, onChanged }: { proposal: Proposal; asOf: string; onChanged?: () => void }) {
+  const [state, setState] = React.useState<'idle' | 'saving' | 'done' | 'error'>('idle')
+  async function confirm() {
+    setState('saving')
+    try {
+      // used: true makes this idempotent: a second tap, or a period marked elsewhere, stays marked.
+      await api(`/api/benefits/${encodeURIComponent(p.benefit_id)}/mark`, { period_start: p.period_start, as_of: asOf, used: true })
+      setState('done'); onChanged?.()
+    } catch { setState('error') }
+  }
+  return <div className="proposal"><span>Agent suggests: mark <b>{p.title}</b> ({p.period_label}) as used · {money(Math.round(p.amount * 100))}</span>
+    <button disabled={state === 'saving' || state === 'done'} onClick={confirm}>{state === 'done' ? 'Marked ✓' : state === 'error' ? 'Retry' : 'Mark used'}</button></div>
+}
+
+function Chat({ storeKey, endpoint, asOf, suggestions, placeholder, emptyNote, composerNote, initialQuestion, intro, onChanged }: { storeKey: string; endpoint: string; asOf: string; suggestions: string[]; placeholder: string; emptyNote: string; composerNote?: string; initialQuestion?: { text: string; id: number }; intro?: React.ReactNode; onChanged?: () => void }) {
   const [messages, setMessages] = React.useState<Msg[]>(() => chatStore.get(storeKey) || [])
   const [draft, setDraft] = React.useState('')
   const log = React.useRef<HTMLDivElement>(null)
   React.useEffect(() => { setMessages(chatStore.get(storeKey) || []) }, [storeKey])
   React.useEffect(() => { chatStore.set(storeKey, messages.filter(m => !m.pending)); log.current?.scrollTo({ top: log.current.scrollHeight }) }, [messages, storeKey])
   const busy = messages.some(m => m.pending)
+  const sent = React.useRef(0)
+  React.useEffect(() => {
+    // The ref survives StrictMode's double effect, so each question is sent once.
+    if (initialQuestion && sent.current !== initialQuestion.id) { sent.current = initialQuestion.id; send(initialQuestion.text) }
+  }, [initialQuestion])
   async function send(question: string) {
     if (!question.trim() || busy) return
     const history: Msg[] = [...messages, { role: 'user', content: question }]
@@ -285,12 +373,18 @@ function Chat({ storeKey, endpoint, asOf, suggestions, placeholder, emptyNote }:
     }
   }
   return <div className="chat">
-    {!!messages.length && <div className="chat-log" ref={log}>{messages.map((m, i) => <div key={i} className={`msg ${m.role} ${m.pending ? 'pending' : ''}`}>
-      {m.role === 'assistant' ? <Markdown text={m.content}/> : m.content}
-      {m.reply && <AgentTrace reply={m.reply} emptyNote={emptyNote}/>}
-    </div>)}</div>}
-    <div className="suggestions">{suggestions.map(s => <button key={s} className="filter-chip" disabled={busy} onClick={() => send(s)}>{s}</button>)}</div>
-    <form className="chat-form" onSubmit={e => { e.preventDefault(); send(draft) }}><input value={draft} onChange={e => setDraft(e.target.value)} placeholder={placeholder} maxLength={2000}/><button disabled={busy || !draft.trim()}>Ask</button></form>
+    <div className="chat-scroll" ref={log}>{intro}
+      {!!messages.length && <div className="chat-log">{messages.map((m, i) => <div key={i} className={`msg ${m.role} ${m.pending ? 'pending' : ''}`}>
+        {m.role === 'assistant' ? <Markdown text={m.content}/> : m.content}
+        {m.reply && <AgentTrace reply={m.reply} emptyNote={emptyNote}/>}
+        {m.reply?.proposals?.map(p => <ProposalButton key={p.benefit_id} proposal={p} asOf={asOf} onChanged={onChanged}/>)}
+      </div>)}</div>}
+    </div>
+    <div className="chat-composer">
+      <div className="suggestions">{suggestions.map(s => <button key={s} className="filter-chip" disabled={busy} onClick={() => send(s)}>{s}</button>)}</div>
+      {composerNote && <small className="composer-note">{composerNote}</small>}
+      <form className="chat-form" onSubmit={e => { e.preventDefault(); send(draft) }}><input value={draft} onChange={e => setDraft(e.target.value)} placeholder={placeholder} maxLength={2000}/><button disabled={busy || !draft.trim()}>Ask</button></form>
+    </div>
   </div>
 }
 
@@ -316,13 +410,12 @@ function Markdown({ text }: { text: string }) {
   return <>{blocks}</>
 }
 
-function AskRail({ asOf, onClose }: { asOf: string; onClose: () => void }) {
-  return <><button className="rail-scrim" aria-label="Close Ask" onClick={onClose}/><aside className="evidence-rail" aria-label="Ask PerkWatch"><header><b>Ask PerkWatch</b><button onClick={onClose} aria-label="Close">×</button></header>
+function AskRail({ asOf, suggestions, initialQuestion, onChanged, onClose }: { asOf: string; suggestions: string[]; initialQuestion?: { text: string; id: number }; onChanged?: () => void; onClose: () => void }) {
+  return <aside className="evidence-rail ask-rail" aria-label="Ask PerkWatch"><header><b><Sparkle/> Ask PerkWatch <small>Wallet-aware assistant</small></b><button onClick={onClose} aria-label="Close">×</button></header>
     <div className="rail-content"><h2>What's worth doing?</h2><p className="rail-subtitle">Answers use your tracked credits and official terms. Community tips are labeled.</p>
       <section className="chat-card"><Chat storeKey="__wallet__" endpoint="/api/ask" asOf={asOf} placeholder="Ask about any of your credits…"
-        suggestions={['What should I use this week?', 'Which credits have I been missing most?', 'Which credit covers airport security fast lanes?']}
-        emptyNote="answered from your wallet, no tools needed"/></section></div>
-    <footer>Amounts come from your statements, not the model.</footer></aside></>
+        suggestions={suggestions} emptyNote="answered from your wallet, no tools needed" composerNote="Amounts come from your statements, not the model."
+        initialQuestion={initialQuestion} onChanged={onChanged}/></section></div></aside>
 }
 
 createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>)

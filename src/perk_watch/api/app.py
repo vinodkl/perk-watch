@@ -23,6 +23,7 @@ class MarkRequest(BaseModel):
     period_start: str
     as_of: date | None = None
     amount_minor: int | None = None
+    used: bool | None = None
 
 
 class Message(BaseModel):
@@ -89,6 +90,8 @@ def create_app(root: str | Path | None = None, *, chat_client=None, embedder=Non
             period = next((p for p in state["periods"] if p["start"] == request.period_start), None)
             if period is None:
                 raise HTTPException(400, "unknown period")
+            if request.used is not None and period["marked"] == request.used:
+                return state  # already in the requested state; a toggle here would undo it
             updated = toggle_mark(data_root(root), benefit_id, request.period_start,
                                   request.amount_minor or period["amount_minor"])
             return benefit_state(db, benefit_id, as_of, updated)

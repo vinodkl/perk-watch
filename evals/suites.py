@@ -2,14 +2,18 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import date
 from types import SimpleNamespace
 from typing import Any
 
-from perk_watch.runtime.chat import MODEL, benefit_chat, compact_status, wallet_ask
+from perk_watch.runtime.chat import MODEL, benefit_chat, compact_status, wallet_ask, wallet_briefing
 from perk_watch.runtime.retrieval.search import search_benefits
 from perk_watch.runtime.tracker import benefit_state, track
+
+# Title words too generic to show the model named the right credit.
+_COMMON_TITLE_WORDS = {"credit", "monthly", "membership", "cash", "annual"}
 
 
 # ---------- E1 tracker ----------
@@ -120,6 +124,11 @@ def check_answer(case: dict, reply: dict, status: dict | None) -> dict[str, bool
             checks[name] = case["expect_tool"] in [t["tool"] for t in reply["tool_trace"]]
         elif name == "names_benefit":
             checks[name] = case["expect_mention"] in answer
+        elif name == "min_tool_calls":
+            checks[name] = len(reply["tool_trace"]) >= case["min_tool_calls"]
+        elif name == "names_top_at_risk":
+            words = [w for w in re.findall(r"[A-Za-z+]{4,}", case["top_title"]) if w.lower() not in _COMMON_TITLE_WORDS]
+            checks[name] = not case["top_title"] or any(w.lower() in answer.lower() for w in words)
         else:
             raise ValueError(f"unknown check: {name}")
     return checks
@@ -141,16 +150,27 @@ def run_chat(db: sqlite3.Connection, cases: list[dict], *, as_of: date, client: 
     results = []
     for case in cases:
         messages = [{"role": "user", "content": case["question"]}]
-        if case.get("benefit_id"):
+        if case.get("kind") == "briefing":
+            status = None
+            reply = wallet_briefing(db, as_of=as_of, marks=marks, client=client, embedder=embedder)
+            at_risk = [b for b in track(db, as_of, marks)["benefits"] if b["current"]["status"] == "at_risk"]
+            top = max(at_risk, key=lambda b: b["current"]["remaining_minor"], default=None)
+            case = {**case, "top_title": top["title"] if top else ""}
+            context: object = [{"title": b["title"], "left": b["current"]["remaining_minor"] / 100,
+                                "ends": b["current"]["end"]} for b in at_risk]
+        elif case.get("benefit_id"):
             status = compact_status(benefit_state(db, case["benefit_id"], as_of, marks), as_of)
             reply = benefit_chat(db, case["benefit_id"], messages, as_of=as_of, marks=marks,
                                  client=client, embedder=embedder)
-            context: object = status
+            context = status
         else:
             status = None
             reply = wallet_ask(db, messages, as_of=as_of, marks=marks, client=client, embedder=embedder)
-            expected = benefit_state(db, case["expect_benefit"], as_of, marks)
-            context = {"expected_benefit": expected["title"], "terms": expected["terms"][:600]}
+            if case.get("expect_benefit"):
+                expected = benefit_state(db, case["expect_benefit"], as_of, marks)
+                context = {"expected_benefit": expected["title"], "terms": expected["terms"][:600]}
+            else:
+                context = [compact_status(s, as_of) for s in track(db, as_of, marks)["benefits"]]
         checks = check_answer(case, reply, status)
         verdict = judge(client, context, case["question"], reply["answer"])
         results.append({"id": case["id"], "passed": all(checks.values()), "checks": checks,
