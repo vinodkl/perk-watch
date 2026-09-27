@@ -1,6 +1,6 @@
 # PerkWatch
 
-PerkWatch answers questions about card benefits using locally prepared benefit terms, transactions, and public community ideas. Issuer collection and Reddit collection are **explicit offline actions**. Answering a question never collects new data or changes the prepared database. See the [V2 design](docs/explanation/perk-watch-v2-design.md).
+PerkWatch tracks your card credits period by period (used, partly used, missed, at risk) from your own statement exports, and lets you ask an LLM how to use a credit before it expires, with source-linked community tips. Issuer and community collection are **explicit offline actions**; the app never collects data, and its only write is "mark used" for credits your statement can't show. See the [V3 tracker design](docs/explanation/perk-watch-v3-benefit-tracker.md).
 
 ## 0. Install and choose a local data root
 
@@ -83,27 +83,38 @@ python3 scripts/check_local_data_guard.py
 
 With `OPENAI_API_KEY` set, the same preparation command builds **two** stored embedding indexes via `prepare/rag_search_index.py`: official benefit text and community ideas. Check the printed `embeddings`, `community_embeddings`, and `skipped` counts and the local report. Transactions remain in SQLite; they are never embedded. Re-run this command after changing raw files or an embedding provider/model. Missing or stale vectors are skipped at search time, not rebuilt during a question.
 
-## 4. Ask through the read-only agent loop
+## 4. Track credits and ask questions
 
 ```sh
-uv run python scripts/ask.py "Which benefits still have value this month?"
-uv run python scripts/show_benefits.py --data-root "$PERKWATCH_DATA_DIR" --as-of 2026-10-15
+uv run python scripts/show_tracker.py --data-root "$PERKWATCH_DATA_DIR" --as-of 2026-10-15
+uv run python scripts/ask.py "Which credits should I use this week?"
+uv run --extra ui python scripts/serve.py   # API on http://127.0.0.1:8000 for the web UI
 ```
 
-`runtime/app.py` opens the prepared SQLite database read-only. `runtime/agent.py` runs a bounded tool-selection loop (default: at most **6 tool calls**, **2 retries**). Its tools in `runtime/tools.py` search official terms, calculate benefit usage, find labeled community suggestions, and fetch only transactions referenced by a calculation. `runtime/retrieval/search.py` embeds the question and reads stored vectors; `runtime/calculations.py` computes amounts, refunds, and dates with code. The CLI does not collect, import, or index data. The optional community results are suggestions, never official rules.
-
-`show_benefits.py` is a direct calculation path without the agent. Its `--as-of` date is illustrative above; use the date you want to inspect.
+`runtime/app.py` opens the prepared SQLite database read-only. `runtime/tracker.py` matches issuer credit lines to the hand-checked catalog (`catalog.json`) and reports each credit's periods, status, and yearly captured/missed totals. `runtime/chat.py` answers per-benefit and wallet questions with a small tool loop grounded in tracker status, official terms, and community tips, and flags dollar amounts it cannot find in that context. "Mark used" for manually tracked credits is the only runtime write, to `PERKWATCH_DATA_DIR/user/profile.json`. Community tips are suggestions, never official rules. The `--as-of` date is illustrative above.
 
 ## 5. Test a feature change and run evaluations
 
 ```sh
-uv run python -m unittest discover -s tests
+uv run --extra ui python -m unittest discover -s tests
 python3 scripts/check_local_data_guard.py
-uv run python evals/run.py > /tmp/perkwatch-eval.json
+uv run python evals/run.py --suite tracker           # synthetic, no model calls
+uv run python evals/run.py --suite all --real        # adds real data, retrieval and chat (about 20 OpenAI calls)
 ```
 
-Unit tests and the guard are local checks. The eval runner rebuilds only the **synthetic** `evals/fixture.sqlite`; it never reads `PERKWATCH_DATA_DIR`. It requires `OPENAI_API_KEY` and incurs model calls for the live agent, query rewording, reranking, and answer-quality judge. Rewriting and reranking are **experiments**, not enabled in the runtime search path.
+The eval runner has three suites:
 
-After a feature update, add or adjust a synthetic case in `evals/cases.json` and a focused test. Compare `fixture_check_failures` and `live_agent_failures` with the tool trace and selected answer in the JSON report. Factual checks verify structured amounts, dates, IDs, citations, and labels; the LLM judge scores answer quality **only**. Re-run the eval to check for unstable behavior before keeping a retrieval change. The fixture uses deterministic word-count vectors, so its search scores do not measure production embedding quality.
+- **tracker:** period status and amounts, with no LLM. It checks a synthetic in-memory fixture (`evals/fixture.py`, `evals/cases.json`), and with `--real` also a local answer key transcribed from a commercial tracker (`$PERKWATCH_DATA_DIR/eval/maxrewards_answer_key.json`, never committed).
+- **retrieval:** recall@3 of the right benefit for plain-language questions, using real embeddings.
+- **chat:** per-benefit and wallet answers. Code checks cover the remaining amount, the deadline, no unverified dollar amounts, labelled community tips, and the expected tool. An LLM judge scores usefulness from 1 to 5, and **only** usefulness.
 
-Earlier measured results and the limits of those measurements are recorded in the [Phase 5 evaluation ticket](docs/explanation/perk-watch-v2-phase-5-evaluation.md). Do not treat them as results of the current code until the evaluation is rerun.
+Suites that need a key or real data are skipped with a note. After a feature change, add a synthetic case to `evals/cases.json` and a focused test.
+
+Last full run (2026-09-26, real data): tracker 31/31, retrieval recall@3 8/8, chat 5/5 checks with judge mean 4.2. See the [V3 tracker design](docs/explanation/perk-watch-v3-benefit-tracker.md) for how these were measured.
+
+## 6. Run the web app
+
+```sh
+uv run --extra ui python scripts/serve.py   # API on http://127.0.0.1:8000
+cd web && npm run dev                       # UI on http://localhost:5173
+```

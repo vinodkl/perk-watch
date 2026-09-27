@@ -60,33 +60,23 @@ So a regex per benefit over `description` (for example `PLATINUM DIGITAL ENTERTA
 
 ### 2. Normalize (prepare): simplify hard
 
-**Benefit catalog, hand-checked, one JSON per card.** This replaces `prepare/extractor.py` (LLM extraction) and the regex backfill in `prepare/benefits.py:93-115`. MaxRewards curates its catalog too; for about 20 credits, correctness beats automatic extraction.
+**Benefit catalog, hand-checked, one committed file:** `src/perk_watch/catalog.json`, loaded and validated by `catalog.py`. For about 13 credits, correctness beats automatic extraction; MaxRewards curates its catalog too. The prepared `benefits` table stays as the official terms library (terms text for chat, embeddings for search), joined by `benefit_id`.
 
 ```json
-{
-  "benefit_id": "amex_platinum_digital_entertainment",
-  "card_id": "amex_platinum",
-  "title": "$300 Digital Entertainment Credit",
-  "category": "entertainment",
-  "period": "monthly",
-  "amount_minor": 2500,
-  "schedule_overrides": {},
-  "reset": "calendar",
-  "tracking": "auto",
-  "credit_patterns": ["PLATINUM DIGITAL ENTERTAINMENT CREDIT"],
-  "spend_patterns": ["DISNEY", "HULU", "PEACOCK", "NYTIMES", "YOUTUBE"],
-  "enrollment_required": true,
-  "terms": "Up to $25 in statement credits each month for eligible ...",
-  "source_url": "https://www.americanexpress.com/..."
-}
+{"benefit_id": "amex_platinum_200_uber_cash", "card_id": "amex_platinum", "title": "$200 Uber Cash",
+ "category": "travel", "period": "monthly", "amount_minor": 1500, "overrides": {"12": 3500},
+ "tracking": "manual", "enrollment_required": false}
+{"benefit_id": "amex_platinum_400_resy_credit", "card_id": "amex_platinum", "title": "$400 Resy Credit",
+ "category": "dining", "period": "quarterly", "amount_minor": 10000, "tracking": "auto",
+ "credit_pattern": "platinum resy credit", "pattern_verified": true, "enrollment_required": true}
 ```
 
-- `amount_minor` is always **per period**. `schedule_overrides` handles uneven periods, for example Uber Cash `{"12": 3500}`.
-- `period` is one of `monthly | quarterly | semiannual | annual | multi_year`. `reset` is `calendar | anniversary`.
-- `tracking` is `auto` (credit patterns), `manual` (user marks it, for example Uber Cash), or `none` (perks and protections: listed, never tracked).
-- `spend_patterns` is optional. It is evidence only, used for "matched purchases" in the detail view, and never decides status.
+- `amount_minor` is always **per period**. `overrides` maps a month to a different amount (Uber Cash's December $35).
+- `period` is one of `monthly | quarterly | semiannual | annual`, reset on the calendar. Anniversary resets are not modelled yet.
+- `tracking` is `auto` (needs a `credit_pattern`) or `manual` (the user marks it). Perks and protections are not in the catalog.
+- `pattern_verified` records whether the pattern has matched a real statement line; 4 of 11 auto patterns have.
 
-**Matching:** a credit line matches a benefit when its description matches one of that benefit's `credit_patterns` and it has the card's credit sign from `cards.json`. First match wins. A test asserts that no two benefits share a pattern, so ties cannot happen.
+**Matching:** a statement line matches when it has the card's credit sign (`cards.json`) and its description matches exactly one benefit's `credit_pattern` (case-insensitive regex). A line matching several benefits is a catalog error and is counted as unmatched, never guessed.
 
 **Delete:** `prepare/merchants.py` (LLM merchant matching), `prepare/credits.py` (word overlap), `prepare/extractor.py` (keep only as an optional offline "draft a catalog entry" helper if wanted).
 
@@ -185,14 +175,28 @@ Replace the "select evidence indexes, never write prose" loop with a normal tool
 - **V2 constraint "two cards only":** keep it for the capstone. The catalog format makes adding a card a JSON file plus its credit patterns.
 - **Uncommitted `mechanism` work:** its idea becomes `tracking: auto|manual|none` in the catalog. Do not finish slice 8.5 as specified.
 
-## Build order
+## Prototype results (2026-09-26)
 
-1. **Catalog + pattern matching (half a day).** Write `amex_platinum.json` and `chase_sapphire_preferred.json`. Add the pattern-uniqueness test. Re-prepare real data and confirm 14 matched credits.
-2. **Tracker + E1 (1 day).** Build `tracker.py` with synthetic edge-case tests and the real answer-key comparison.
-3. **API + UI tiles (1 to 1.5 days).** Build `/api/benefits`, tiles, dots, and totals. Delete `briefing.py` and `calculations.py`.
-4. **Community tips + blurbs (half a day).**
-5. **Chat + single RAG index (1 day).** Build the chat endpoint, tools, the $ guard, and the drawer panel.
-6. **E2/E3 evals + docs (half to 1 day).**
+A throwaway vertical slice (`prototype/` on branch `prototype/benefit-tracker`) ran this design on real data before any production code:
+
+- **Tracker vs MaxRewards answer key: 31/31 periods** correct on status and amount; 14/14 issuer credits matched, 0 unmatched credit lines.
+- **Retrieval recall@3: 7/8.** The miss was a Sapphire question ranking the Amex hotel credit first, so search now filters by the card a question names.
+- **Chat: 3/3 code checks passed, judge mean 4.33/5.** The per-benefit chat never needed `search_terms` because the injected context was enough; the wallet-wide Ask is where retrieval earns its place.
+- **Community:** 48 source-linked tips across all 13 credits; 5 tips that stopped working are kept out.
+
+Decisions it settled:
+
+- The catalog is committed (public issuer facts only); `AGENTS.md` was updated.
+- "Mark used" for manual credits is saved in `PERKWATCH_DATA_DIR/user/profile.json`, the only runtime write.
+- The web UI keeps the Phase 8 wallet look with the tracker layout.
+
+## Build order (as built)
+
+1. **Catalog, tracker, saved marks, chat (core).** `catalog.json`/`catalog.py`, `runtime/tracker.py`, `runtime/profile.py`, `runtime/community.py`, `runtime/chat.py`, tested in `tests/test_tracker.py`.
+2. **API.** `api/app.py` serves the contract the UI uses: `/api/tracker`, `/api/benefits/{id}/mark|community|chat`, `/api/ask`. It replaces the V2 agent, tools, calculations and briefing.
+3. **Prepare.** Merchant and credit matching are removed. Community tips load from `raw/<card>/community/tips.json`, and blurbs are generated once at prepare time and cached.
+4. **Evals.** `evals/run.py` has three suites: tracker (synthetic + local MaxRewards key), retrieval, and chat.
+5. **UI.** `web/` tracker layout (done first, from the prototype; the prototype code lives only on its branch).
 
 ## Risks
 
