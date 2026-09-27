@@ -22,4 +22,4 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-perk_watch = ["cards.json"]
+perk_watch = ["cards.json", "catalog.json"]

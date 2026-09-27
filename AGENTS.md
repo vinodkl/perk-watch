@@ -9,7 +9,8 @@ PerkWatch has one implementation (V2, now primary). Keep application code under 
 Read `.agents/skills/local-card-data-staging/SKILL.md` before collecting or importing card data.
 
 - Use `PERKWATCH_DATA_DIR`; the local default root is `data/real/`.
-- Keep real benefits, statements, CSV/OFX exports, credentials, databases, search files, and generated output out of git.
+- Keep raw benefit guides, statements, CSV/OFX exports, credentials, databases, search files, and generated output out of git.
+- The hand-checked credit catalog (`src/perk_watch/catalog.json`) holds only public issuer facts and credit-line patterns, and is committed.
 - User login, MFA, CAPTCHA, account selection, and consent remain manual.
 - Stage user-supplied files with `perk_watch.staging.raw_data` so hashes and source records are written; then run `scripts/prepare_data.py` to normalize and index them.
 - Never replace tracked evaluation examples with real data.
@@ -26,7 +27,7 @@ Public Reddit collection is an explicit offline action. It never runs from the a
 
 ## Runtime
 
-Runtime reads prepared card data only. It does not collect issuer data, import statements, contact Reddit, or change stored card data while answering a question. Optional Phase 7 preparation and runtime diagnostics may write only privacy-safe local traces under `PERKWATCH_DATA_DIR/prepared/traces/`; they are not agent memory. Keep transactions in SQLite and use embedding search only for benefit text and community ideas.
+Runtime reads prepared card data only. It does not collect issuer data, import statements, contact Reddit, or change prepared data while answering a question. The one runtime write is user-initiated: "mark used" for manually tracked credits goes to `PERKWATCH_DATA_DIR/user/profile.json`. Keep transactions in SQLite and use embedding search only for benefit text and community ideas.
 
 ## Safety boundaries
 

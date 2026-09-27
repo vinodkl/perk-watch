@@ -43,6 +43,16 @@ CREATE TABLE IF NOT EXISTS community_embeddings (
   model TEXT NOT NULL, dimensions INTEGER NOT NULL, vector_json TEXT NOT NULL,
   content_sha256 TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS community_tips (
+  tip_id TEXT PRIMARY KEY, card_id TEXT NOT NULL REFERENCES cards(card_id),
+  benefit_id TEXT NOT NULL, tip TEXT NOT NULL, source_url TEXT NOT NULL,
+  source_title TEXT NOT NULL DEFAULT '', source_date TEXT NOT NULL DEFAULT '',
+  last_verified TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS community_blurbs (
+  benefit_id TEXT PRIMARY KEY, blurb TEXT NOT NULL, model TEXT NOT NULL,
+  tips_sha256 TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS benefit_embeddings (
   benefit_id TEXT PRIMARY KEY REFERENCES benefits(benefit_id),
   model TEXT NOT NULL, dimensions INTEGER NOT NULL, vector_json TEXT NOT NULL,
