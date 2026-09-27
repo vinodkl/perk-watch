@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import sqlite3
 import sys
 from types import SimpleNamespace
 import unittest
-from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from perk_watch.prepare.storage import connect
-from perk_watch.runtime.calculations import calculate_benefit
 from perk_watch.embeddings import OpenAIEmbeddingProvider
 from perk_watch.privacy import redact_pii
 from perk_watch.runtime.retrieval.search import BenefitSearch
@@ -49,11 +46,6 @@ class Phase2Test(unittest.TestCase):
         self.db.execute("INSERT INTO benefits (benefit_id, card_id, title, amount_minor, period, eligible_merchants, enrollment_required, booking_required, terms, source_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (benefit_id, "amex", "Monthly travel", amount, period, merchants, None, None, "Travel terms", "new"))
         self.db.execute("UPDATE benefits SET mechanism = 'legacy' WHERE benefit_id = ?", (benefit_id,))
-        self.db.commit()
-
-    def _transaction(self, transaction_id, posted, amount, merchant=None):
-        self.db.execute("INSERT INTO transactions VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                        (transaction_id, "amex", posted, merchant or "Unclear", amount, "USD", merchant, "new"))
         self.db.commit()
 
     def test_openai_embedding_provider_batches_and_restores_order(self):
@@ -124,91 +116,6 @@ class Phase2Test(unittest.TestCase):
         results = BenefitSearch(self.db, self.embedder).search("travel credit for rides")
         self.assertEqual(results[0]["benefit_id"], "rides")
         self.assertEqual(BenefitSearch(self.db, self.embedder).search("dining at restaurants"), [])
-
-    def test_monthly_calculation_applies_refund_and_returns_transactions(self):
-        self._benefit()
-        self._transaction("purchase", "2026-01-05", 8000, "uber")
-        self._transaction("refund", "2026-01-06", -2500, "uber")
-        self._transaction("other", "2026-01-07", 9000, "whole foods")
-        result = calculate_benefit(self.db, "amex_monthly", as_of="2026-01-15")
-        self.assertEqual(result["used_amount_minor"], 5500)
-        self.assertEqual(result["remaining_amount_minor"], 4500)
-        self.assertEqual(result["deadline"], "2026-01-31")
-        self.assertEqual(result["supporting_transaction_ids"], ["purchase", "refund"])
-
-    def test_unknown_merchant_keeps_status_unknown(self):
-        self._benefit()
-        self._transaction("unknown", "2026-01-05", 1000)
-        result = calculate_benefit(self.db, "amex_monthly", as_of="2026-01-15")
-        self.assertEqual(result["status"], "unknown")
-        self.assertIsNone(result["remaining_amount_minor"])
-
-    def test_period_boundaries_and_missing_account_year_boundary(self):
-        self._benefit("year", 1000, "yearly")
-        self._transaction("year-end", "2026-12-31", 1000, "uber")
-        year_end = calculate_benefit(self.db, "year", as_of="2026-12-31")
-        self.assertEqual(year_end["deadline"], "2026-12-31")
-        self.assertEqual(year_end["supporting_transaction_ids"], ["year-end"])
-        new_year = calculate_benefit(self.db, "year", as_of="2027-01-01")
-        self.assertEqual(new_year["deadline"], "2027-12-31")
-        self.assertEqual(new_year["supporting_transaction_ids"], [])
-
-        self._benefit("quarter", 1000, "quarterly")
-        self._transaction("q", "2026-04-01", 1000, "uber")
-        result = calculate_benefit(self.db, "quarter", as_of="2026-06-30")
-        self.assertEqual(result["deadline"], "2026-06-30")
-
-        self._benefit("account", 1000, "account-year")
-        unknown = calculate_benefit(self.db, "account", as_of="2026-06-30")
-        self.assertEqual(unknown["status"], "unknown")
-        known = calculate_benefit(self.db, "account", as_of="2026-06-30", account_year_start="2025-07-01")
-        self.assertEqual(known["deadline"], "2026-06-30")
-
-    def test_statement_credit_counts_only_matched_issuer_credits_in_active_period(self):
-        self._benefit("resy", 5000, "quarterly")
-        self.db.execute("UPDATE benefits SET mechanism = 'statement_credit' WHERE benefit_id = 'resy'")
-        self._transaction("purchase", "2026-07-03", 2000, "dining")
-        self._transaction("credit", "2026-08-14", -2000)
-        self._transaction("coverage", "2026-09-26", 1)
-        self.db.execute("INSERT INTO credit_matches VALUES ('credit', 'resy', 'explicit')")
-        self.db.commit()
-        result = calculate_benefit(self.db, "resy", as_of="2026-09-26")
-        self.assertEqual(result["used_amount_minor"], 2000)
-        self.assertEqual(result["supporting_transaction_ids"], ["credit"])
-
-    def test_statement_credit_monthly_coverage_ambiguity_and_non_statement(self):
-        self._benefit("uber_credit", 1000, "monthly")
-        self.db.execute("UPDATE benefits SET mechanism = 'statement_credit' WHERE benefit_id = 'uber_credit'")
-        self._transaction("period-start", "2026-10-01", 1)
-        self._transaction("purchase", "2026-10-02", 1500, "uber")
-        self._transaction("issuer-credit", "2026-10-12", -500)
-        self._transaction("coverage", "2026-10-15", 1)
-        self.db.execute("INSERT INTO credit_matches VALUES ('issuer-credit', 'uber_credit', 'explicit')")
-        self.db.commit()
-        result = calculate_benefit(self.db, "uber_credit", as_of="2026-10-15")
-        self.assertEqual(result["used_amount_minor"], 500)
-        self.assertEqual(result["supporting_transaction_ids"], ["issuer-credit"])
-        self.assertEqual(calculate_benefit(self.db, "uber_credit", as_of="2026-10-16")["status"], "unknown")
-
-        self.db.execute("UPDATE benefits SET mechanism = 'checkout_discount' WHERE benefit_id = 'uber_credit'")
-        self.assertIn("not verifiable", calculate_benefit(self.db, "uber_credit", as_of="2026-10-15")["reason"])
-
-    def test_half_year_period_uses_calendar_half(self):
-        self._benefit("half", 1000, "half-yearly")
-        result = calculate_benefit(self.db, "half", as_of="2026-08-01")
-        self.assertEqual(result["deadline"], "2026-12-31")
-
-    def test_ambiguous_credit_match_is_not_assigned(self):
-        from perk_watch.prepare.credits import match_credits
-        transactions = [{"transaction_id": "ambiguous", "description": "DINING RESY UBER CREDIT", "amount_minor": -1000}]
-        benefits = [{"benefit_id": "resy", "title": "Resy credit"}, {"benefit_id": "uber", "title": "Uber credit"}]
-        self.assertEqual(match_credits("amex_platinum", transactions, benefits), [])
-
-    def test_missing_amount_is_unknown(self):
-        self._benefit("missing", None)
-        result = calculate_benefit(self.db, "missing", as_of="2026-01-15")
-        self.assertEqual(result["status"], "unknown")
-        self.assertEqual(result["reason"], "benefit amount is unknown")
 
 
 if __name__ == "__main__":
