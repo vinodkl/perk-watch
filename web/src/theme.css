@@ -212,4 +212,9 @@ details.fine-print p{white-space:pre-wrap;font-size:13px}
 .admin-cli-only{font-size:11px;color:#8f8571}
 .admin-cli-only code{color:#c9c2b3}
 .admin-raw{margin-top:12px;padding:12px;background:#171109;border-radius:10px;font-size:11px;line-height:1.5;overflow:auto;max-height:280px;color:#c9c2b3}
+.admin-cases{margin:12px 0 0;padding:0;list-style:none;max-height:260px;overflow:auto;border-top:1px solid #3a3226}
+.admin-cases li{padding:9px 0;border-bottom:1px dashed #3a3226;font-size:12px}
+.admin-cases li b{color:#f2ede2}
+.admin-case-meta{color:#8fe3ae;margin-left:6px}
+.admin-case-detail{display:block;color:#8f8571;margin-top:3px;font-family:'Public Sans','Arial',sans-serif}
 @keyframes admin-pulse{0%,100%{opacity:1}50%{opacity:.55}}

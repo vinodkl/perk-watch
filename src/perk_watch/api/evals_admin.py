@@ -18,17 +18,46 @@ sys.path.insert(0, str(ROOT / "evals"))
 from fixture import FixtureEmbedder, build_fixture  # noqa: E402
 from suites import CountingClient, run_chat, run_tracker  # noqa: E402
 
+from ..catalog import catalog_by_id
+
 CASES = json.loads((ROOT / "evals" / "cases.json").read_text(encoding="utf-8"))
 SYNTHETIC_AS_OF = date(2026, 9, 26)
 
+
+def _title(benefit_id: str | None) -> str:
+    if not benefit_id:
+        return "wallet-wide"
+    benefit = catalog_by_id().get(benefit_id)
+    return benefit.title if benefit else benefit_id
+
+
+def _tracker_cases() -> list[dict[str, Any]]:
+    return [{"name": scenario["name"], "as_of": scenario["as_of"], "periods": len(scenario["periods"]),
+             "benefits": sorted({_title(p["benefit_id"]) for p in scenario["periods"]})}
+            for scenario in CASES["tracker"]]
+
+
+def _retrieval_cases() -> list[dict[str, Any]]:
+    return [{"question": case["question"], "expects": _title(case["benefit_id"])} for case in CASES["retrieval"]]
+
+
+def _chat_cases() -> list[dict[str, Any]]:
+    return [{"id": case["id"], "question": case["question"], "checks": case["checks"],
+             "expects": "this week's plan" if case.get("kind") == "briefing" else _title(case.get("benefit_id"))}
+            for case in CASES["chat"]]
+
+
 SUITES: dict[str, dict[str, Any]] = {
     "tracker": {"title": "Tracker", "rerunnable": True, "network": False, "call_estimate": 0,
-                "description": "Every synthetic period's status and amount. No network, no cost."},
+                "description": "Every synthetic period's status and amount. No network, no cost.",
+                "cases": _tracker_cases()},
     "retrieval": {"title": "Retrieval", "rerunnable": False, "network": True, "call_estimate": None,
                   "description": "recall@3 on the real prepared DB and its OpenAI embeddings. "
-                                  "Has no synthetic mode; run it from the CLI with --real."},
+                                  "Has no synthetic mode; run it from the CLI with --real.",
+                  "cases": _retrieval_cases()},
     "chat": {"title": "Chat", "rerunnable": True, "network": True, "call_estimate": 2 * len(CASES["chat"]),
-             "description": "Code checks plus an LLM judge, on the synthetic fixture."},
+             "description": "Code checks plus an LLM judge, on the synthetic fixture.",
+             "cases": _chat_cases()},
 }
 
 def _run_tracker() -> dict:

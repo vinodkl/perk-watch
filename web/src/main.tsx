@@ -234,8 +234,12 @@ function Legend() {
   </div>
 }
 
+type TrackerCase = { name: string; as_of: string; periods: number; benefits: string[] }
+type RetrievalCase = { question: string; expects: string }
+type ChatCase = { id: string; question: string; checks: string[]; expects: string }
 type EvalSuiteState = {
   title: string; description: string; rerunnable: boolean; network: boolean; call_estimate: number | null
+  cases: TrackerCase[] | RetrievalCase[] | ChatCase[]
   status: 'idle' | 'running' | 'done' | 'error'; result: Record<string, unknown> | null
   started_at: number | null; finished_at: number | null; error: string | null
 }
@@ -250,10 +254,21 @@ function evalSummary(name: string, result: Record<string, any>): string {
   return JSON.stringify(result)
 }
 
+function CaseList({ name, cases }: { name: string; cases: TrackerCase[] | RetrievalCase[] | ChatCase[] }) {
+  if (name === 'tracker') return <ul className="admin-cases">{(cases as TrackerCase[]).map(c => <li key={c.name}>
+    <b>{c.name}</b> <span className="admin-case-meta">as of {c.as_of} · {c.periods} periods</span>
+    <span className="admin-case-detail">{c.benefits.join(', ')}</span></li>)}</ul>
+  if (name === 'retrieval') return <ul className="admin-cases">{(cases as RetrievalCase[]).map(c => <li key={c.question}>
+    <b>“{c.question}”</b> <span className="admin-case-meta">→ expects {c.expects}</span></li>)}</ul>
+  return <ul className="admin-cases">{(cases as ChatCase[]).map(c => <li key={c.id}>
+    <b>{c.id}</b> <span className="admin-case-meta">{c.expects}</span>
+    <span className="admin-case-detail">“{c.question}” · checks: {c.checks.join(', ')}</span></li>)}</ul>
+}
+
 function EvalsAdmin() {
   const [snapshot, setSnapshot] = React.useState<EvalsSnapshot | null>(null)
   const [confirmName, setConfirmName] = React.useState<string | null>(null)
-  const [expanded, setExpanded] = React.useState<string | null>(null)
+  const [openPanels, setOpenPanels] = React.useState<Set<string>>(new Set())
   React.useEffect(() => {
     let live = true
     const poll = () => api<EvalsSnapshot>('/api/admin/evals').then(s => { if (live) setSnapshot(s) }).catch(() => {})
@@ -264,6 +279,9 @@ function EvalsAdmin() {
   function run(name: string) {
     setConfirmName(null)
     api<EvalSuiteState>(`/api/admin/evals/${name}/run`, {}).then(state => setSnapshot(s => s && { ...s, [name]: state })).catch(() => {})
+  }
+  function toggle(key: string) {
+    setOpenPanels(open => { const next = new Set(open); next.has(key) ? next.delete(key) : next.add(key); return next })
   }
   if (!snapshot) return <main className="admin-shell"><p className="admin-loading">Loading eval suites…</p></main>
   return <main className="admin-shell">
@@ -291,9 +309,11 @@ function EvalsAdmin() {
               : <button disabled={suite.status === 'running'}
                   onClick={() => suite.network ? setConfirmName(name) : run(name)}>{suite.status === 'running' ? 'Running…' : 'Rerun'}</button>
             : <span className="admin-cli-only">CLI only: <code>uv run python evals/run.py --suite {name} --real</code></span>}
-          {!!suite.result && <button className="ghost" onClick={() => setExpanded(expanded === name ? null : name)}>{expanded === name ? 'Hide raw' : 'Raw JSON'}</button>}
+          <button className="ghost" onClick={() => toggle(`${name}:cases`)}>{openPanels.has(`${name}:cases`) ? 'Hide cases' : `Cases (${suite.cases.length})`}</button>
+          {!!suite.result && <button className="ghost" onClick={() => toggle(`${name}:raw`)}>{openPanels.has(`${name}:raw`) ? 'Hide raw' : 'Raw JSON'}</button>}
         </div>
-        {expanded === name && <pre className="admin-raw">{JSON.stringify(suite.result, null, 1)}</pre>}
+        {openPanels.has(`${name}:cases`) && <CaseList name={name} cases={suite.cases}/>}
+        {openPanels.has(`${name}:raw`) && <pre className="admin-raw">{JSON.stringify(suite.result, null, 1)}</pre>}
       </div>)}
     </div>
   </main>
