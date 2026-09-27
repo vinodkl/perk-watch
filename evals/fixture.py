@@ -10,7 +10,7 @@ from perk_watch.catalog import load_catalog
 from perk_watch.prepare.rag_search_index import build_benefit_embeddings
 from perk_watch.prepare.storage import connect
 
-AMEX, CHASE = "amex_platinum", "chase_sapphire_preferred"
+AMEX, CHASE, RESERVE = "amex_platinum", "chase_sapphire_preferred", "chase_sapphire_reserve"
 
 # (card_id, posted_date, description, amount_minor) in each card's export sign:
 # Amex credits are negative, Chase credits are positive.
@@ -57,6 +57,13 @@ TERMS = {
     "amex_platinum_300_equinox_credit": "Up to $300 per year toward an Equinox gym membership or the Equinox+ app. Enrollment required.",
     "chase_sapphire_preferred_benefit_010": "Up to $100 back each year on hotel stays booked through Chase Travel.",
     "chase_sapphire_preferred_benefit_001": "Up to $10 each month in DoorDash promotions on non-restaurant orders. Activate DashPass to use it.",
+    "chase_sapphire_reserve_300_travel_credit": "Up to $300 back each year, automatically applied to travel purchases charged to the card.",
+    "chase_sapphire_reserve_500_edit_hotel_credit": "Up to $250 in statement credits per qualifying prepaid stay of two nights or more booked through The Edit, on up to two bookings a year.",
+    "chase_sapphire_reserve_300_dining_credit": "Up to $150 back each half of the year on dining at Sapphire Reserve Exclusive Tables restaurants.",
+    "chase_sapphire_reserve_300_stubhub_credit": "Up to $150 back each half of the year on tickets bought through StubHub or viagogo.",
+    "chase_sapphire_reserve_25_doordash_credit": "Up to $25 each month in DoorDash promotions with an active DashPass membership.",
+    "chase_sapphire_reserve_10_lyft_credit": "Up to $10 in monthly in-app Lyft ride credits.",
+    "chase_sapphire_reserve_10_peloton_credit": "Up to $10 back each month on an eligible Peloton membership.",
 }
 
 COMMUNITY_IDEAS = [
@@ -79,10 +86,11 @@ class FixtureEmbedder:
 
 def build_fixture(path: str | Path = ":memory:") -> sqlite3.Connection:
     db = connect(path)
-    db.executemany("INSERT INTO cards VALUES (?, ?)", [(AMEX, "Amex Platinum"), (CHASE, "Chase Sapphire Preferred")])
+    db.executemany("INSERT INTO cards VALUES (?, ?)",
+                   [(AMEX, "Amex Platinum"), (CHASE, "Chase Sapphire Preferred"), (RESERVE, "Chase Sapphire Reserve")])
     db.executemany("INSERT INTO sources VALUES (?, ?, ?, ?, ?)",
-                   [(f"s-{c}-tx", c, "transactions", f"{c}-synthetic.csv", "synthetic") for c in (AMEX, CHASE)]
-                   + [(f"s-{c}-terms", c, "benefits", f"{c}-terms.json", "synthetic") for c in (AMEX, CHASE)])
+                   [(f"s-{c}-tx", c, "transactions", f"{c}-synthetic.csv", "synthetic") for c in (AMEX, CHASE, RESERVE)]
+                   + [(f"s-{c}-terms", c, "benefits", f"{c}-terms.json", "synthetic") for c in (AMEX, CHASE, RESERVE)])
     db.executemany("INSERT INTO transactions VALUES (?, ?, ?, ?, ?, 'USD', NULL, ?)",
                    [(f"t{i:02d}", card, posted, desc, amount, f"s-{card}-tx")
                     for i, (card, posted, desc, amount) in enumerate(STATEMENT_LINES)])

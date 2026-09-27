@@ -6,5 +6,9 @@
   "chase_sapphire_preferred": {
     "display_name": "Chase Sapphire Preferred",
     "statement_credit_sign": "positive"
+  },
+  "chase_sapphire_reserve": {
+    "display_name": "Chase Sapphire Reserve",
+    "statement_credit_sign": "positive"
   }
 }

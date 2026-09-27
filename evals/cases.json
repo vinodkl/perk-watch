@@ -25,7 +25,7 @@
         {"benefit_id": "chase_sapphire_preferred_benefit_010", "period": "2026", "status": "used", "used_minor": 10000, "why": "Chase credits are positive; the negative reversal is ignored"},
         {"benefit_id": "chase_sapphire_preferred_benefit_001", "period": "Aug", "status": "unmarked", "used_minor": 0}
       ],
-      "totals": {"captured_minor": 74799, "missed_minor": 37266, "at_risk_minor": 16295},
+      "totals": {"captured_minor": 74799, "missed_minor": 37266, "at_risk_minor": 20795},
       "unmatched_credit_lines": 1
     },
     {
@@ -38,7 +38,7 @@
         {"benefit_id": "amex_platinum_400_resy_credit", "period": "Q3", "status": "pending", "used_minor": 0, "why": "statement gap after Sep 5"},
         {"benefit_id": "amex_platinum_219_clear_credit", "period": "2026", "status": "at_risk", "used_minor": 0, "why": "27 days left <= 45"}
       ],
-      "totals": {"captured_minor": 72299, "missed_minor": 36766, "at_risk_minor": 133900},
+      "totals": {"captured_minor": 72299, "missed_minor": 36766, "at_risk_minor": 243900},
       "unmatched_credit_lines": 1
     }
   ],

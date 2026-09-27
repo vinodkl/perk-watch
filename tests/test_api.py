@@ -141,7 +141,7 @@ class ApiTest(unittest.TestCase):
     def test_status_reports_preparation_time_and_data_through(self):
         self.assertEqual(self.client.get("/api/status").json(), {
             "last_preparation_time": "2026-09-20T12:00:00+00:00",
-            "data_through": {AMEX: "2026-09-19", CHASE: "2026-09-18"}})
+            "data_through": {AMEX: "2026-09-19", CHASE: "2026-09-18", "chase_sapphire_reserve": None}})
 
     def test_mark_with_used_true_never_unmarks(self):
         body = {"period_start": "2026-09-01", "as_of": AS_OF, "used": True}

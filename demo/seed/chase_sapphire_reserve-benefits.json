@@ -1,0 +1,96 @@
+{
+  "benefits": [
+    {
+      "benefit_id": "chase_sapphire_reserve_300_travel_credit",
+      "title": "$300 Annual Travel Credit",
+      "amount_minor": 30000,
+      "period": "yearly",
+      "eligible_merchants": [
+        "travel"
+      ],
+      "enrollment_required": false,
+      "booking_required": false,
+      "mechanism": "statement_credit",
+      "terms": "Demo terms: up to $300 back each calendar year, automatically applied to travel purchases charged to the card."
+    },
+    {
+      "benefit_id": "chase_sapphire_reserve_500_edit_hotel_credit",
+      "title": "$500 The Edit Hotel Credit",
+      "amount_minor": 50000,
+      "period": "yearly",
+      "eligible_merchants": [
+        "travel portal"
+      ],
+      "enrollment_required": false,
+      "booking_required": true,
+      "mechanism": "statement_credit",
+      "terms": "Demo terms: up to $250 back per qualifying prepaid stay of two nights or more booked through The Edit, on up to two bookings each calendar year."
+    },
+    {
+      "benefit_id": "chase_sapphire_reserve_300_dining_credit",
+      "title": "$300 Exclusive Tables Dining Credit",
+      "amount_minor": 15000,
+      "period": "semiannual",
+      "eligible_merchants": [
+        "exclusive tables"
+      ],
+      "enrollment_required": true,
+      "booking_required": false,
+      "mechanism": "statement_credit",
+      "terms": "Demo terms: up to $150 back each half of the calendar year on dining at Sapphire Reserve Exclusive Tables restaurants."
+    },
+    {
+      "benefit_id": "chase_sapphire_reserve_300_stubhub_credit",
+      "title": "$300 StubHub Credit",
+      "amount_minor": 15000,
+      "period": "semiannual",
+      "eligible_merchants": [
+        "stubhub",
+        "viagogo"
+      ],
+      "enrollment_required": false,
+      "booking_required": false,
+      "mechanism": "statement_credit",
+      "terms": "Demo terms: up to $150 back each half of the calendar year on tickets bought through StubHub or viagogo."
+    },
+    {
+      "benefit_id": "chase_sapphire_reserve_25_doordash_credit",
+      "title": "$25 Monthly DoorDash Credit",
+      "amount_minor": 2500,
+      "period": "monthly",
+      "eligible_merchants": [
+        "doordash"
+      ],
+      "enrollment_required": true,
+      "booking_required": false,
+      "mechanism": "in_app_cash",
+      "terms": "Demo terms: with an active DashPass membership, up to $25 each month in DoorDash promotions on restaurant, grocery and retail orders."
+    },
+    {
+      "benefit_id": "chase_sapphire_reserve_10_lyft_credit",
+      "title": "$10 Monthly Lyft Credit",
+      "amount_minor": 1000,
+      "period": "monthly",
+      "eligible_merchants": [
+        "lyft"
+      ],
+      "enrollment_required": false,
+      "booking_required": false,
+      "mechanism": "in_app_cash",
+      "terms": "Demo terms: up to $10 in monthly in-app Lyft ride credits."
+    },
+    {
+      "benefit_id": "chase_sapphire_reserve_10_peloton_credit",
+      "title": "$10 Monthly Peloton Credit",
+      "amount_minor": 1000,
+      "period": "monthly",
+      "eligible_merchants": [
+        "peloton"
+      ],
+      "enrollment_required": true,
+      "booking_required": false,
+      "mechanism": "statement_credit",
+      "terms": "Demo terms: up to $10 back each month on an eligible Peloton membership."
+    }
+  ]
+}

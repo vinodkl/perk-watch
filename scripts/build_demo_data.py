@@ -26,7 +26,7 @@ def main() -> None:
         parser.error("--root must be empty")
 
     seed = ROOT / "demo" / "seed"
-    for card in ("amex_platinum", "chase_sapphire_preferred"):
+    for card in ("amex_platinum", "chase_sapphire_preferred", "chase_sapphire_reserve"):
         import_benefit_guide(seed / f"{card}-benefits.json", card=card, root=target,
                              url="https://example.test/perkwatch-demo")
         import_transactions(seed / f"{card}-transactions.csv", card=card, root=target)

@@ -19,9 +19,9 @@ from perk_watch.runtime.app import database
 class StagingTests(unittest.TestCase):
     def test_catalog_drives_preparation_staging_and_credit_signs(self):
         cards = load_cards()
-        self.assertEqual(set(cards), {"amex_platinum", "chase_sapphire_preferred"})
+        self.assertEqual(set(cards), {"amex_platinum", "chase_sapphire_preferred", "chase_sapphire_reserve"})
         self.assertEqual(CARDS, {card: info["display_name"] for card, info in cards.items()})
-        for card, sign in (("amex_platinum", -100), ("chase_sapphire_preferred", 100)):
+        for card, sign in (("amex_platinum", -100), ("chase_sapphire_preferred", 100), ("chase_sapphire_reserve", 100)):
             rows = [{"description": "Unlisted statement credit", "amount_minor": sign},
                     {"description": "Unlisted statement credit", "amount_minor": -sign}]
             self.assertEqual(_unmatched_credit_lines(card, rows, load_catalog()), 1)
@@ -29,7 +29,7 @@ class StagingTests(unittest.TestCase):
             guide = Path(temp) / "guide.json"
             guide.write_text("{}", encoding="utf-8")
             with self.assertRaises(ValueError):
-                import_benefit_guide(guide, card="chase_sapphire_reserve", root=Path(temp) / "data")
+                import_benefit_guide(guide, card="discover_it", root=Path(temp) / "data")
 
     def test_runtime_database_is_read_only(self):
         with tempfile.TemporaryDirectory() as temp:

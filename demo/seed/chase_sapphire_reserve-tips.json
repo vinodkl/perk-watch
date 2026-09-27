@@ -1,0 +1,22 @@
+{
+  "collected_on": "2026-09-19",
+  "tips": [
+    {
+      "benefit_id": "chase_sapphire_reserve_500_edit_hotel_credit",
+      "tip": "Demo tip: book a two-night refundable stay through The Edit early, since only prepaid bookings of two nights or more qualify.",
+      "source_url": "https://example.test/perkwatch-demo/tips/3",
+      "source_title": "Synthetic demo tip",
+      "source_date": "2026-09-01",
+      "last_verified": "2026-09-19"
+    },
+    {
+      "benefit_id": "chase_sapphire_reserve_25_doordash_credit",
+      "tip": "Demo tip: a small grocery or retail order through DoorDash is enough to use the monthly promo without a big restaurant bill.",
+      "source_url": "https://example.test/perkwatch-demo/tips/4",
+      "source_title": "Synthetic demo tip",
+      "source_date": "2026-09-01",
+      "last_verified": "2026-09-19"
+    }
+  ],
+  "no_longer_works": []
+}
