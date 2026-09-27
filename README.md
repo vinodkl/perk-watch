@@ -41,7 +41,7 @@ flowchart TB
 
 ## Screenshots
 
-![Main page: at-risk credits, weekly AI plan, tracker](screenshots/tracker.png)
+![Main page: 3 cards, at-risk credits, the Ask PerkWatch agent, and the weekly AI plan](screenshots/tracker.png)
 
 ![Benefit panel: period history, statement credits, per-benefit chat](screenshots/benefit-chat.png)
 
