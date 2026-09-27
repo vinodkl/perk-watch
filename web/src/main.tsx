@@ -14,6 +14,7 @@ type Briefing = {
   statements: { card_id: string; display_name: string; first_posted_date: string | null; last_posted_date: string | null; stale: boolean }[]
 }
 type Status = { last_preparation_time?: string | null }
+const cardPriority = (card: Briefing['statements'][number]) => /amex|american express/i.test(`${card.card_id} ${card.display_name}`) ? 0 : /chase/i.test(`${card.card_id} ${card.display_name}`) ? 1 : 2
 const money = (minor?: number | null) => minor == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(minor / 100)
 const fmtDate = (value?: string | null) => value ? new Date(`${value}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'date unavailable'
 const fmtFullDate = (value?: string | null) => value ? new Date(`${value}T00:00:00`).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'date unavailable'
@@ -87,7 +88,7 @@ function App() {
     <header className="topbar"><div className="brand"><span className="mark">⌕</span><b>PerkWatch</b></div><div className="head-actions"><a href="http://127.0.0.1:8001" className="admin">⚒ &nbsp;Admin</a><label className="date-pill">AS OF <input aria-label="As of date" type="date" value={asOf || briefing.as_of} onChange={e => changeDate(e.target.value)} /></label><span className="avatar">VN</span></div></header>
     <main className="wallet-layout">
       <aside className="wallet-column"><div className="wallet-intro"><h1>Your wallet</h1><p>Your cards are holding a few things for you. See what expires soon and what PerkWatch can't confirm.</p></div>
-        <div className="card-stack" aria-label="Your cards">{briefing.statements.slice(0, 2).map((card, i) => <article className={`bank-card bank-card-${i}`} key={card.card_id}><span className="chip"/><b>{card.display_name}</b></article>)}</div>
+        <div className="card-stack" aria-label="Your cards">{[...briefing.statements].sort((a, b) => cardPriority(a) - cardPriority(b)).slice(0, 2).map((card, i) => <article className={`bank-card bank-card-${i}`} key={card.card_id}><span className="chip"/><b>{card.display_name}</b></article>)}</div>
         <section className="wallet-summary"><p>About to expire <b className="orange-text"><CountUp value={imminentValue}/></b></p><p>Need your eyes <b className="teal-text"><CountUp value={check.length} currency={false}/></b></p><p>Quietly on track <b className="green-text"><CountUp value={track.length} currency={false}/></b></p><a href="#perks" className="perks-link">Perks &amp; protections <b>listed, not counted →</b></a>
           {briefing.statements.some(card => card.stale) && <div className="stale-warning">Statements end {fmtDate(latestStatement)}. Later charges aren't counted yet.</div>}
           <div className="card-dates">{briefing.statements.map(card => <p key={card.card_id}><b>{card.display_name}</b><span>{fmtDate(card.first_posted_date)}–{fmtDate(card.last_posted_date)}</span></p>)}{status.last_preparation_time && <small>PREPARED {new Date(status.last_preparation_time).toLocaleString()}</small>}</div>
