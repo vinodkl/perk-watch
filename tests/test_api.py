@@ -4,6 +4,7 @@ import json
 import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import closing
 from pathlib import Path
@@ -154,6 +155,32 @@ class ApiTest(unittest.TestCase):
         with closing(database(self.root)) as db:
             with self.assertRaises(sqlite3.OperationalError):
                 db.execute("INSERT INTO cards VALUES ('write', 'Write')")
+
+    def test_admin_evals_lists_suites_and_reruns_tracker(self):
+        listed = self.client.get("/api/admin/evals").json()
+        self.assertEqual(set(listed), {"tracker", "retrieval", "chat"})
+        self.assertEqual(listed["retrieval"]["rerunnable"], False)
+        started = self.client.post("/api/admin/evals/tracker/run").json()
+        self.assertIn(started["status"], ("running", "done"))
+        for _ in range(50):
+            state = self.client.get("/api/admin/evals").json()["tracker"]
+            if state["status"] != "running":
+                break
+            time.sleep(0.05)
+        self.assertEqual(state["status"], "done")
+        self.assertEqual(state["result"]["synthetic"]["mismatches"], [])
+
+    def test_admin_evals_refuses_retrieval_rerun_and_reports_missing_key(self):
+        self.assertEqual(self.client.post("/api/admin/evals/retrieval/run").status_code, 400)
+        self.assertEqual(self.client.post("/api/admin/evals/nope/run").status_code, 404)
+        with patch("perk_watch.embeddings._api_key", return_value=None):
+            self.client.post("/api/admin/evals/chat/run")
+            for _ in range(50):
+                state = self.client.get("/api/admin/evals").json()["chat"]
+                if state["status"] != "running":
+                    break
+                time.sleep(0.05)
+        self.assertEqual((state["status"], state["error"]), ("error", "OPENAI_API_KEY not set"))
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ from typing import Iterator
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
+from . import evals_admin
 from ..catalog import catalog_by_id
 from ..runtime.app import data_root, database
 from ..runtime.chat import benefit_chat, wallet_ask, wallet_briefing
@@ -62,6 +63,7 @@ def create_app(root: str | Path | None = None, *, chat_client=None, embedder=Non
 
     # In memory only: runtime never writes prepared data. A new mark or a re-prepare changes the key.
     briefings: dict[tuple, dict] = {}
+    evals = evals_admin.EvalsAdmin(chat_client=chat_client)
 
     def converse(call, *args, request: ChatRequest) -> dict:
         messages = [message.model_dump() for message in request.messages]
@@ -128,6 +130,20 @@ def create_app(root: str | Path | None = None, *, chat_client=None, embedder=Non
         with connection() as db:
             through = data_through(db)
         return {"last_preparation_time": report().get("finished_at"), "data_through": through}
+
+    @app.get("/api/admin/evals")
+    def admin_evals() -> dict:
+        return evals.snapshot()
+
+    @app.post("/api/admin/evals/{name}/run")
+    def admin_evals_run(name: str) -> dict:
+        if name not in evals_admin.SUITES:
+            raise HTTPException(404, "unknown suite")
+        try:
+            evals.start(name)
+        except ValueError as error:
+            raise HTTPException(400, str(error))
+        return evals.snapshot()[name]
 
     return app
 

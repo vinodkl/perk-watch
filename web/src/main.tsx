@@ -69,6 +69,13 @@ function App() {
   const [askOpen, setAskOpen] = React.useState(false)
   const [askQuestion, setAskQuestion] = React.useState<{ text: string; id: number } | undefined>()
   const [filter, setFilter] = React.useState<'all' | 'missed' | 'manual'>('all')
+  const [view, setView] = React.useState<'wallet' | 'evals'>(params.get('view') === 'evals' ? 'evals' : 'wallet')
+  function changeView(next: 'wallet' | 'evals') {
+    setView(next)
+    const url = new URL(location.href)
+    next === 'evals' ? url.searchParams.set('view', 'evals') : url.searchParams.delete('view')
+    history.pushState(null, '', url)
+  }
   const reload = React.useCallback(() => api<Tracker>(`/api/tracker${asOf ? `?as_of=${encodeURIComponent(asOf)}` : ''}`)
     .then(t => { setTracker(t); setError('') }).catch(e => setError(e.message)), [asOf])
   React.useEffect(() => { reload() }, [reload])
@@ -102,8 +109,10 @@ function App() {
   const selected = tracker.benefits.find(b => b.benefit_id === benefitId)
 
   return <>
-    <header className="topbar"><div className="brand"><span className="mark">⌕</span><b>PerkWatch</b></div><div className="head-actions"><label className="date-pill">AS OF <input aria-label="As of date" type="date" value={asOf || tracker.as_of} onChange={e => changeDate(e.target.value)} /></label><span className="avatar">VN</span></div></header>
-    <main className="wallet-layout">
+    <header className="topbar"><div className="brand"><span className="mark">⌕</span><b>PerkWatch</b></div><div className="head-actions">
+      <button className={`nav-tab ${view === 'evals' ? 'on' : ''}`} onClick={() => changeView(view === 'evals' ? 'wallet' : 'evals')}>⚙ Evals</button>
+      <label className="date-pill">AS OF <input aria-label="As of date" type="date" value={asOf || tracker.as_of} onChange={e => changeDate(e.target.value)} /></label><span className="avatar">VN</span></div></header>
+    {view === 'evals' ? <EvalsAdmin/> : <main className="wallet-layout">
       <aside className="wallet-column">
         <div className="wallet-intro"><h1>{greeting()}, Vinod.</h1><p>{atRisk.length ? <>{atRisk.length} credit{atRisk.length === 1 ? '' : 's'} expire{atRisk.length === 1 ? 's' : ''} in the next few days. Here's what's left and what slipped by.</> : <>Nothing is about to expire. Here's how your credits are tracking this year.</>}</p></div>
         <div className="card-stack" aria-label="Your cards">{cards.slice(0, 2).map((card, i) => <article className={`bank-card bank-card-${i}`} key={card}><span className="chip"/><b>{card}</b><small>{tracker.benefits.filter(b => b.card === card).length} CREDITS</small></article>)}</div>
@@ -142,7 +151,7 @@ function App() {
         })}
         <section className="perks-strip" id="perks"><span>◇</span><div><b>Perks &amp; protections</b><small>Lounge access, insurance and status perks are listed in your terms but not tracked as credits.</small></div></section>
       </section>
-    </main>
+    </main>}
     {selected && <BenefitRail benefit={selected} asOf={tracker.as_of} dataThrough={tracker.data_through[selected.card_id]} onClose={closeBenefit} onChanged={reload}/>}
     {askOpen && <AskRail asOf={tracker.as_of} suggestions={askSuggestions(tracker)} initialQuestion={askQuestion}
       onChanged={reload} onClose={() => { setAskOpen(false); setAskQuestion(undefined) }}/>}
@@ -223,6 +232,71 @@ function Legend() {
   return <div className="legend">{items.map(([status, label]) => <span key={status}><i className={`dot ${status}`}>{GLYPH[status]}</i>{label}</span>)}
     <p className="ai-note"><Sparkle/> marks AI-written parts. Amounts and statuses are computed from your statements. AI writes the weekly plan, answers questions and summarizes community tips, and every dollar amount it writes is checked against your data.</p>
   </div>
+}
+
+type EvalSuiteState = {
+  title: string; description: string; rerunnable: boolean; network: boolean; call_estimate: number | null
+  status: 'idle' | 'running' | 'done' | 'error'; result: Record<string, unknown> | null
+  started_at: number | null; finished_at: number | null; error: string | null
+}
+type EvalsSnapshot = Record<string, EvalSuiteState>
+
+function evalSummary(name: string, result: Record<string, any>): string {
+  if (name === 'tracker') {
+    const s = result.synthetic
+    return `${s.periods} periods · status ${Math.round(s.status_accuracy * 100)}% · amount ${Math.round(s.amount_accuracy * 100)}% · ${s.mismatches.length} mismatch${s.mismatches.length === 1 ? '' : 'es'}`
+  }
+  if (name === 'chat') return `${result.passed}/${result.cases} checks passed · judge ${result.mean_judge_score ?? '—'}/5`
+  return JSON.stringify(result)
+}
+
+function EvalsAdmin() {
+  const [snapshot, setSnapshot] = React.useState<EvalsSnapshot | null>(null)
+  const [confirmName, setConfirmName] = React.useState<string | null>(null)
+  const [expanded, setExpanded] = React.useState<string | null>(null)
+  React.useEffect(() => {
+    let live = true
+    const poll = () => api<EvalsSnapshot>('/api/admin/evals').then(s => { if (live) setSnapshot(s) }).catch(() => {})
+    poll()
+    const id = setInterval(poll, 1500)
+    return () => { live = false; clearInterval(id) }
+  }, [])
+  function run(name: string) {
+    setConfirmName(null)
+    api<EvalSuiteState>(`/api/admin/evals/${name}/run`, {}).then(state => setSnapshot(s => s && { ...s, [name]: state })).catch(() => {})
+  }
+  if (!snapshot) return <main className="admin-shell"><p className="admin-loading">Loading eval suites…</p></main>
+  return <main className="admin-shell">
+    <div className="admin-head">
+      <span className="eyebrow">EVALS · SYNTHETIC FIXTURES ONLY</span>
+      <h2>Eval suites</h2>
+      <p>The suites the capstone write-up cites. Reruns here always use synthetic data, never your real statements.</p>
+    </div>
+    <div className="admin-grid">
+      {Object.entries(snapshot).map(([name, suite]) => <div className="admin-card" key={name}>
+        <div className="admin-card-head"><b>{suite.title}</b><span className={`status-pill status-${suite.status}`}>{suite.status}</span></div>
+        <p className="admin-desc">{suite.description}</p>
+        <div className="admin-meta">
+          <span>{suite.network ? (suite.call_estimate ? `~${suite.call_estimate} OpenAI calls` : 'needs real data') : 'no network · free'}</span>
+          {!!suite.finished_at && <span>last run {new Date(suite.finished_at * 1000).toLocaleTimeString()}</span>}
+        </div>
+        {!!suite.result && <p className="admin-summary">{evalSummary(name, suite.result)}</p>}
+        {!!suite.error && <p className="admin-error">⚠ {suite.error}</p>}
+        <div className="admin-actions">
+          {suite.rerunnable
+            ? confirmName === name
+              ? <span className="admin-confirm">Run ~{suite.call_estimate ?? 0} OpenAI calls?
+                  <button onClick={() => run(name)}>Confirm</button>
+                  <button className="ghost" onClick={() => setConfirmName(null)}>Cancel</button></span>
+              : <button disabled={suite.status === 'running'}
+                  onClick={() => suite.network ? setConfirmName(name) : run(name)}>{suite.status === 'running' ? 'Running…' : 'Rerun'}</button>
+            : <span className="admin-cli-only">CLI only: <code>uv run python evals/run.py --suite {name} --real</code></span>}
+          {!!suite.result && <button className="ghost" onClick={() => setExpanded(expanded === name ? null : name)}>{expanded === name ? 'Hide raw' : 'Raw JSON'}</button>}
+        </div>
+        {expanded === name && <pre className="admin-raw">{JSON.stringify(suite.result, null, 1)}</pre>}
+      </div>)}
+    </div>
+  </main>
 }
 
 function Dots({ periods, large, onToggle }: { periods: Period[]; large?: boolean; onToggle?: (p: Period) => void }) {
