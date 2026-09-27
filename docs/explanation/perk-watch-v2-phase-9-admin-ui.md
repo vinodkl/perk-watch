@@ -1,5 +1,7 @@
 # PerkWatch V2 Phase 9: Admin UI
 
+> **Superseded by V3.** This page records the V2 question-answering design and is kept as history. The current design is the [V3 benefit tracker](perk-watch-v3-benefit-tracker.md).
+
 Add a local admin page that runs the existing offline steps and corrects what extraction and merchant matching got wrong, without weakening the read-only runtime. See [PerkWatch V2 design](perk-watch-v2-design.md) and the [designs](#designs) below.
 
 ## Goal

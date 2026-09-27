@@ -5,6 +5,8 @@ status: original plan (partially implemented)
 
 # PerkWatch V2 refactor organization plan
 
+> **Superseded by V3.** This page records the V2 question-answering design and is kept as history. The current design is the [V3 benefit tracker](perk-watch-v3-benefit-tracker.md).
+
 The implemented layout follows the later agreed names: `staging/raw_data.py`,
 `prepare/rag_search_index.py`, and `runtime/retrieval/search.py`. This document
 retains the original proposal for context. Storage migrations and per-benefit

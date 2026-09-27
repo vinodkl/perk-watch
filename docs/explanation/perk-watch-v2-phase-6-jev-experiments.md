@@ -1,5 +1,7 @@
 # PerkWatch V2 Phase 6: Jev experiments
 
+> **Superseded by V3.** This page records the V2 question-answering design and is kept as history. The current design is the [V3 benefit tracker](perk-watch-v3-benefit-tracker.md).
+
 Test whether TypeSafe Jev improves two narrow decisions without replacing the working V2 system. See [PerkWatch V2 design](perk-watch-v2-design.md).
 
 ## Goal

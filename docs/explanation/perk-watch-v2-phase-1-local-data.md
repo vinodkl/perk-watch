@@ -1,5 +1,7 @@
 # PerkWatch V2 Phase 1: Monthly update and local data
 
+> **Superseded by V3.** This page records the V2 question-answering design and is kept as history. The current design is the [V3 benefit tracker](perk-watch-v3-benefit-tracker.md).
+
 Build the local data setup that every later phase reads. See [PerkWatch V2 design](perk-watch-v2-design.md).
 
 **Status:** Complete
