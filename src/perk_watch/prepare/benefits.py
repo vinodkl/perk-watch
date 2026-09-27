@@ -12,8 +12,9 @@ from ..staging.raw_data import source_id
 from ..cards import load_cards
 
 CARDS = {card_id: details["display_name"] for card_id, details in load_cards().items()}
-FIELDS = ("amount_minor", "period", "eligible_merchants", "enrollment_required", "booking_required")
-PERIODS = {"monthly", "quarterly", "yearly", "account_year"}
+FIELDS = ("amount_minor", "period", "eligible_merchants", "enrollment_required", "booking_required", "mechanism")
+PERIODS = {"monthly", "quarterly", "half_yearly", "yearly", "account_year"}
+MECHANISMS = {"statement_credit", "checkout_discount", "in_app_cash", "points", "perk", "protection"}
 
 
 def load_benefits(card_id: str, path: Path, extractor: Callable[[str, str], Any] | None = None) -> tuple[list[dict[str, Any]], dict[str, int]]:
@@ -93,14 +94,24 @@ def _repair_obvious_fields(item: Mapping[str, Any]) -> dict[str, Any]:
     item = dict(item)
     text = f"{item.get('title', '')} {item.get('terms', '')}"
     if item.get("period") is None:
-        match = re.search(r"\b(monthly|each month|per month|quarterly|each quarter|per quarter|annual|annually|yearly|calendar year)\b", text, re.I)
+        match = re.search(r"\b(monthly|each month|per month|quarterly|each quarter|per quarter|half[- ]yearly|semiannual|annual|annually|yearly|calendar year)\b", text, re.I)
         if match:
             word = match.group(1).lower()
-            item["period"] = "monthly" if "month" in word else "quarterly" if "quarter" in word else "yearly"
+            item["period"] = "monthly" if "month" in word else "quarterly" if "quarter" in word else "half_yearly" if "half" in word or "semi" in word else "yearly"
     if item.get("amount_minor") is None:
         match = re.search(r"\b(?:up to|credit of|credit for|reimbursement of|reimburse(?:ment)? up to|benefit of)\s*\$\s*([\d,]+(?:\.\d{1,2})?)", text, re.I)
         if match:
             item["amount_minor"] = int(Decimal(match.group(1).replace(",", "")) * 100)
+    if item.get("mechanism") is None:
+        lowered = text.lower()
+        if re.search(r"\b(points?|miles?)\b", lowered):
+            item["mechanism"] = "points"
+        elif re.search(r"\b(protection|insurance|warranty)\b", lowered):
+            item["mechanism"] = "protection"
+        elif re.search(r"\b(perk|membership|lounge access)\b", lowered):
+            item["mechanism"] = "perk"
+        elif re.search(r"\b(discount|promo code|checkout)\b", lowered):
+            item["mechanism"] = "checkout_discount"
     return item
 
 
@@ -125,11 +136,15 @@ def _validate(item: Mapping[str, Any], card_id: str, source: str, index: int) ->
                 value = None
         if field == "period" and value is not None:
             period = str(value).strip().lower().replace("-", "_").replace(" ", "_")
-            value = {"annual": "yearly", "year": "yearly", "month": "monthly", "quarter": "quarterly"}.get(period, period)
+            value = {"annual": "yearly", "year": "yearly", "month": "monthly", "quarter": "quarterly", "half_yearly": "half_yearly", "semiannual": "half_yearly"}.get(period, period)
             if value not in PERIODS:
                 value = None
         if field in {"enrollment_required", "booking_required"} and value is not None and not isinstance(value, bool):
             value = None
+        if field == "mechanism":
+            value = str(value).strip().lower() if value is not None else "statement_credit"
+            if value not in MECHANISMS:
+                value = "statement_credit"
         row[field] = value
     merchants = item.get("eligible_merchants", [])
     if isinstance(merchants, str):

@@ -26,7 +26,7 @@ class Phase4Tests(unittest.TestCase):
         self.db.executemany("INSERT INTO cards VALUES (?, ?)", [("amex", "Amex"), ("chase", "Chase")])
         self.db.executemany("INSERT INTO sources VALUES (?, ?, ?, ?, ?)", [
             ("a", "amex", "benefits", "a.json", "a"), ("c", "chase", "benefits", "c.json", "c")])
-        self.db.executemany("INSERT INTO benefits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+        self.db.executemany("INSERT INTO benefits (benefit_id, card_id, title, amount_minor, period, eligible_merchants, enrollment_required, booking_required, terms, source_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
             ("hotel", "amex", "Hotel credit", 10000, "yearly", "", None, None, "Official terms", "a"),
             ("dining", "chase", "Dining credit", 5000, "monthly", "", None, None, "Official terms", "c")])
         self.db.executemany("INSERT INTO community_ideas VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [

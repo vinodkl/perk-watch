@@ -10,13 +10,22 @@ from pathlib import Path
 from typing import Iterator
 
 from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..runtime.app import database
 from ..runtime.briefing import build_briefing, statement_ranges
 from ..runtime.calculations import calculate_benefit
+from ..runtime.agent import run_agent
 
 
-def create_app(root: str | Path | None = None) -> FastAPI:
+class AskRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    question: str = Field(min_length=1, max_length=2000)
+    as_of: date | None = None
+
+
+
+def create_app(root: str | Path | None = None, *, agent_client=None) -> FastAPI:
     app = FastAPI(title="PerkWatch", docs_url="/api/docs", redoc_url=None)
 
     @contextmanager
@@ -26,6 +35,19 @@ def create_app(root: str | Path | None = None) -> FastAPI:
             yield db
         finally:
             db.close()
+
+    @app.post("/api/ask")
+    def ask(request: AskRequest) -> dict[str, object]:
+        if not request.question.strip():
+            raise HTTPException(status_code=422, detail="question must not be blank")
+        with connection() as db:
+            result = run_agent(db, request.question, client=agent_client,
+                               as_of=request.as_of.isoformat() if request.as_of else None)
+        return {"evidence": [
+                    {"tool": item["tool"], "result": item["result"]}
+                    for index, item in enumerate(result.evidence)
+                    if index in result.selected_indexes],
+                "tool_trace": result.tool_trace, "stop_reason": result.stop_reason}
 
     @app.get("/api/status")
     def status() -> dict[str, object]:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from dataclasses import dataclass
 from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -11,6 +12,14 @@ from . import tools
 
 MAX_CALLS = 6
 MAX_RETRIES = 2
+
+
+@dataclass
+class AgentResult:
+    evidence: list[dict[str, Any]]
+    selected_indexes: list[int]
+    tool_trace: list[str]
+    stop_reason: str
 
 
 class EvidenceSelection(BaseModel):
@@ -57,12 +66,13 @@ def _render(evidence: list[dict[str, Any]], selection: EvidenceSelection) -> str
     )
 
 
-def answer_with_db(db: sqlite3.Connection, question: str, *, client=None,
-                   model: str = "gpt-4o-mini", max_calls: int = MAX_CALLS,
-                   max_retries: int = MAX_RETRIES, on_tool_result=None,
-                   metrics: dict[str, int] | None = None, embedder=None) -> str:
+def run_agent(db: sqlite3.Connection, question: str, *, client=None,
+              model: str = "gpt-4o-mini", max_calls: int = MAX_CALLS,
+              max_retries: int = MAX_RETRIES, on_tool_result=None,
+              metrics: dict[str, int] | None = None, embedder=None,
+              as_of: str | None = None) -> AgentResult:
     if not isinstance(question, str) or not question.strip():
-        return "Please ask a question about your prepared card benefits."
+        return AgentResult([], [], [], "invalid_question")
     if max_calls < 1 or max_retries < 0:
         raise ValueError("invalid call or retry limit")
     if client is None:
@@ -77,6 +87,7 @@ def answer_with_db(db: sqlite3.Connection, question: str, *, client=None,
         {"role": "user", "content": question},
     ]
     seen: set[str] = set()
+    trace: list[str] = []
     calls = retries = 0
     while calls < max_calls:
         response = client.chat.completions.create(model=model, messages=messages,
@@ -89,11 +100,14 @@ def answer_with_db(db: sqlite3.Connection, question: str, *, client=None,
         if not message.tool_calls:
             try:
                 selection = EvidenceSelection.model_validate_json(message.content or "")
-                return _render(evidence, _ground_selection(evidence, selection))
+                selected = _ground_selection(evidence, selection)
+                return AgentResult(evidence, selected.evidence_indices, trace,
+                                   "no_evidence" if not selected.evidence_indices else "complete")
             except (ValidationError, ValueError):
                 # Keep the answer grounded when model-selected indexes are malformed.
-                selection = EvidenceSelection(evidence_indices=list(range(len(evidence))))
-                return _render(evidence, _ground_selection(evidence, selection))
+                selection = _ground_selection(evidence, EvidenceSelection(evidence_indices=list(range(len(evidence)))))
+                return AgentResult(evidence, selection.evidence_indices, trace,
+                                   "no_evidence" if not evidence else "complete")
         messages.append(message)
         for call in message.tool_calls:
             calls += 1
@@ -103,11 +117,15 @@ def answer_with_db(db: sqlite3.Connection, question: str, *, client=None,
             try:
                 if name not in tools.TOOLS:
                     raise ValueError("unknown tool")
-                args = tools.TOOLS[name][0].model_validate_json(raw).model_dump()
+                parsed = tools.TOOLS[name][0].model_validate_json(raw)
+                if name == "evaluate_benefits" and as_of and parsed.as_of is None:
+                    parsed = parsed.model_copy(update={"as_of": as_of})
+                args = parsed.model_dump()
                 key = json.dumps([name, args], sort_keys=True)
                 if key in seen:
                     raise ValueError("repeated identical tool call")
                 seen.add(key)
+                trace.append(name)
                 result = tools.dispatch(db, name, args, searched_ids=searched_benefit_ids,
                                         evaluated_ids=evaluated_ids, embedder=embedder)
                 if metrics is not None:
@@ -124,6 +142,7 @@ def answer_with_db(db: sqlite3.Connection, question: str, *, client=None,
                 if metrics is not None:
                     metrics["tool_calls"] = metrics.get("tool_calls", 0) + 1
                     metrics["failures"] = metrics.get("failures", 0) + 1
+                trace.append(f"{name} (retry)")
                 result, error = {"error": str(exc)}, True
             messages.append({"role": "tool", "tool_call_id": call.id,
                              "content": json.dumps(result, default=str)})
@@ -132,8 +151,20 @@ def answer_with_db(db: sqlite3.Connection, question: str, *, client=None,
                 if metrics is not None:
                     metrics["retries"] = retries
                 if retries > max_retries:
-                    return "I couldn't answer safely because a tool call failed or was invalid."
-    partial = _render(evidence, _ground_selection(
-        evidence, EvidenceSelection(evidence_indices=list(range(len(evidence)))))
-    ) if evidence else "No usable evidence was collected."
-    return f"Partial results (tool-call limit reached; may be incomplete)\n\n{partial}"
+                    return AgentResult(evidence, [], trace, "retry_exhaustion")
+    selected = _ground_selection(evidence, EvidenceSelection(evidence_indices=list(range(len(evidence))))) if evidence else EvidenceSelection(evidence_indices=[])
+    return AgentResult(evidence, selected.evidence_indices, trace, "call_limit")
+
+
+def answer_with_db(db: sqlite3.Connection, question: str, **kwargs) -> str:
+    result = run_agent(db, question, **kwargs)
+    if result.stop_reason == "invalid_question":
+        return "Please ask a question about your prepared card benefits."
+    if result.stop_reason == "retry_exhaustion":
+        return "I couldn't answer safely because a tool call failed or was invalid."
+    answer = _render(result.evidence, EvidenceSelection(evidence_indices=result.selected_indexes))
+    if result.stop_reason == "call_limit":
+        if not result.evidence:
+            answer = "No usable evidence was collected."
+        return f"Partial results (tool-call limit reached; may be incomplete)\n\n{answer}"
+    return answer

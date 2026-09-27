@@ -47,6 +47,7 @@ function App() {
   const [error, setError] = React.useState('')
   const [asOf, setAsOf] = React.useState(new URLSearchParams(location.search).get('as_of') || '')
   const [benefitId, setBenefitId] = React.useState(new URLSearchParams(location.search).get('benefit') || '')
+  const [askOpen, setAskOpen] = React.useState(false)
   React.useEffect(() => {
     const syncRoute = () => setBenefitId(new URLSearchParams(location.search).get('benefit') || '')
     window.addEventListener('popstate', syncRoute)
@@ -105,7 +106,8 @@ function App() {
       </section>
     </main>
     {benefitId && <EvidenceRail benefitId={benefitId} asOf={briefing.as_of} onClose={closeEvidence}/>}
-    <button className="ask-float" disabled>Ask PerkWatch — “what's worth doing this week?” <span>→</span></button>
+    {askOpen && <AskRail onClose={() => setAskOpen(false)} onEvidence={id => { setAskOpen(false); openEvidence(id) }}/>}
+    <button className="ask-float" onClick={() => setAskOpen(true)}>Ask PerkWatch — “what's worth doing this week?” <span>→</span></button>
   </>
 }
 function Coupon({ item, asOf, onEvidence }: { item: Item; asOf: string; onEvidence: (id: string) => void }) {
@@ -141,6 +143,23 @@ function EvidenceRail({ benefitId, asOf, onClose }: { benefitId: string; asOf: s
       <footer>Amounts come from the calculation engine, not the agent.</footer>
     </aside>
   </>
+}
+function AskRail({ onClose, onEvidence }: { onClose: () => void; onEvidence: (id: string) => void }) {
+  const [question, setQuestion] = React.useState('')
+  const [answer, setAnswer] = React.useState<{ evidence: { tool: string; result: any }[]; tool_trace: string[]; stop_reason: string } | null>(null)
+  const [loading, setLoading] = React.useState(false)
+  const [error, setError] = React.useState('')
+  async function ask(event: React.FormEvent) {
+    event.preventDefault(); setLoading(true); setError(''); setAnswer(null)
+    try {
+      const response = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question }) })
+      if (!response.ok) throw Error('Could not answer that question')
+      setAnswer(await response.json())
+    } catch (e) { setError(e instanceof Error ? e.message : 'Could not answer that question') }
+    finally { setLoading(false) }
+  }
+  const label: Record<string, string> = { evaluate_benefits: 'Calculation coupon', search_benefits: 'Official terms', get_transaction_evidence: 'Receipt line', search_community_ideas: 'Community suggestion · Not an official rule' }
+  return <><button className="rail-scrim" aria-label="Close Ask" onClick={onClose}/><aside className="evidence-rail" aria-label="Ask"><header><b>Ask PerkWatch</b><button onClick={onClose} aria-label="Close">×</button></header><div className="rail-content ask-content"><form onSubmit={ask}><label htmlFor="ask-question">What would you like to know?</label><textarea id="ask-question" value={question} onChange={e => setQuestion(e.target.value)} required maxLength={2000}/><button disabled={loading}>{loading ? 'Checking evidence…' : 'Ask'}</button></form>{error && <p role="alert">{error}</p>}{answer && <><p className="ask-outcome">{answer.stop_reason === 'call_limit' ? 'Call limit reached, results may be incomplete.' : answer.stop_reason === 'retry_exhaustion' ? 'A tool failed after retries.' : answer.stop_reason === 'no_evidence' ? 'No evidence found.' : ''}</p>{answer.evidence.map((item, i) => <article className={`ask-evidence ${item.tool}`} key={`${item.tool}-${i}`}><small>{label[item.tool] || item.tool}</small><pre>{JSON.stringify(item.result, null, 2)}</pre>{item.result.benefit_id && <button className="evidence-link" onClick={() => onEvidence(item.result.benefit_id)}>Receipts →</button>}</article>)}<p className="ask-trace">TOOLS · {answer.tool_trace.join(' → ') || 'none'}</p></>}</div><footer>Only selected runtime evidence is shown.</footer></aside></>
 }
 function ticketReason(reason?: string) {
   if (reason?.includes('merchant')) return 'UNMATCHED CHARGES'

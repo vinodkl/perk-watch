@@ -24,6 +24,7 @@ class FixtureEmbedder:
 
 def build_fixture(db: sqlite3.Connection) -> sqlite3.Connection:
     db.executescript(SCHEMA)
+    db.execute("ALTER TABLE benefits ADD COLUMN mechanism TEXT NOT NULL DEFAULT 'legacy'")
     db.executemany("INSERT INTO cards VALUES (?, ?)", [
         ("fixture:amex", "Synthetic Amex"), ("fixture:chase", "Synthetic Chase")])
     sources = [
@@ -35,6 +36,8 @@ def build_fixture(db: sqlite3.Connection) -> sqlite3.Connection:
         ("fixture:yearly-credit-terms", "fixture:amex", "benefits", "yearly-credit-terms.json", "synthetic"),
         ("fixture:account-year-credit-terms", "fixture:amex", "benefits", "account-year-credit-terms.json", "synthetic"),
         ("fixture:incomplete-credit-terms", "fixture:amex", "benefits", "incomplete-credit-terms.json", "synthetic"),
+        ("fixture:resy-credit-terms", "fixture:amex", "benefits", "resy-credit-terms.json", "synthetic"),
+        ("fixture:uber-statement-credit-terms", "fixture:amex", "benefits", "uber-statement-credit-terms.json", "synthetic"),
         ("fixture:community-source", "fixture:amex", "community", "community.json", "synthetic"),
     ]
     db.executemany("INSERT INTO sources VALUES (?, ?, ?, ?, ?)", sources)
@@ -56,14 +59,28 @@ def build_fixture(db: sqlite3.Connection) -> sqlite3.Connection:
         ("fixture:airline-fee", "fixture:amex", "Airline fee credit", 20000, "yearly", "airline", 1, 0,
          "Synthetic airline fee credit terms for eligible incidental fees.", "fixture:airline-fee-terms"),
     ]
-    db.executemany("INSERT INTO benefits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", benefits)
+    db.executemany("INSERT INTO benefits (benefit_id, card_id, title, amount_minor, period, eligible_merchants, enrollment_required, booking_required, terms, source_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", benefits)
+    db.executemany("INSERT INTO benefits (benefit_id, card_id, title, amount_minor, period, eligible_merchants, enrollment_required, booking_required, terms, source_id, mechanism) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+        ("fixture:resy-credit", "fixture:amex", "Resy Quarterly Credit", 5000, "quarterly", "dining", 0, 0,
+         "Issuer posts up to $50 in Resy statement credits each calendar quarter.", "fixture:resy-credit-terms", "statement_credit"),
+        ("fixture:uber-statement-credit", "fixture:amex", "Uber Monthly Credit", 5000, "monthly", "uber", 0, 0,
+         "Issuer posts up to $50 in Uber statement credits each month.", "fixture:uber-statement-credit-terms", "statement_credit")])
     transactions = [
         ("fixture:travel-purchase", "fixture:amex", "2026-05-01", "Synthetic travel purchase", 2000, "USD", "hotel", "fixture:travel-credit-terms"),
         ("fixture:purchase", "fixture:amex", "2026-10-05", "Synthetic dining purchase", 2000, "USD", "dining", "fixture:monthly-credit-terms"),
         ("fixture:refund", "fixture:amex", "2026-10-10", "Synthetic dining refund", -2000, "USD", "dining", "fixture:monthly-credit-terms"),
         ("fixture:unknown-merchant", "fixture:chase", "2026-10-11", "Synthetic unclear purchase", 1000, "USD", None, "fixture:unclear-credit-terms"),
+        ("fixture:resy-purchase", "fixture:amex", "2026-07-10", "Synthetic Resy purchase", 2500, "USD", "dining", "fixture:resy-credit-terms"),
+        ("fixture:resy-credit-posted", "fixture:amex", "2026-08-20", "Synthetic Resy statement credit", -2000, "USD", "other", "fixture:resy-credit-terms"),
+        ("fixture:amex-coverage", "fixture:amex", "2026-09-26", "Synthetic statement coverage marker", 1, "USD", "other", "fixture:resy-credit-terms"),
+        ("fixture:uber-purchase", "fixture:amex", "2026-10-02", "Synthetic Uber purchase", 3000, "USD", "uber", "fixture:uber-statement-credit-terms"),
+        ("fixture:uber-credit-posted", "fixture:amex", "2026-10-10", "Synthetic Uber statement credit", -1500, "USD", "other", "fixture:uber-statement-credit-terms"),
+        ("fixture:uber-coverage", "fixture:amex", "2026-10-15", "Synthetic statement coverage marker", 1, "USD", "other", "fixture:uber-statement-credit-terms"),
     ]
     db.executemany("INSERT INTO transactions VALUES (?, ?, ?, ?, ?, ?, ?, ?)", transactions)
+    db.executemany("INSERT INTO credit_matches VALUES (?, ?, ?)", [
+        ("fixture:resy-credit-posted", "fixture:resy-credit", "explicit"),
+        ("fixture:uber-credit-posted", "fixture:uber-statement-credit", "explicit")])
     db.execute("INSERT INTO community_ideas VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
         "fixture:idea-1", "fixture:amex", "fixture:travel-credit",
         "Consider using the travel credit for an eligible hotel stay.", "Synthetic community paraphrase.",

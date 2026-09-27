@@ -119,6 +119,10 @@ Show: demo narrative 2:25–2:45, "What should I do before the end of the month?
 
 Engine change, measured with new eval cases.
 
+- [ ] **Issuer-credit-based benefit mapping:** statement-credit usage counts issuer-posted credits matched to the benefit, never qualifying purchases. Select the active monthly, quarterly, half-yearly, or yearly period from `as_of` (today when omitted), and distinguish (1) credit confirmed, (2) no credit found with statement coverage through the active period, and (3) unverifiable because statement coverage is incomplete.
+- [ ] Accept explicit half-yearly cadence as two calendar half-years and calculate its period boundaries.
+- [ ] Preserve unknown matches: ambiguous credits are not assigned or counted, and a transaction cannot be counted twice. Add deterministic tests/eval coverage for quarterly Resy-style and monthly Uber-style credits, incomplete statement coverage, ambiguity/double counting, and non-statement benefits.
+
 - [ ] Add a benefit `mechanism` field: `statement_credit`, `checkout_discount`, `in_app_cash`, `points`, `perk`, or `protection`. Extract it with the existing extractor boundary and store it using the same migration pattern as `community_ideas.source_date`.
 - [ ] For `statement_credit`, compute usage from explicit issuer credits only. Unrelated unmatched charges can no longer block the benefit, and a purchase plus its own credit is no longer counted twice.
 - [ ] For `checkout_discount` and `in_app_cash`, return `unknown` with the reason "applied outside statements" (for example, the DoorDash monthly discount).

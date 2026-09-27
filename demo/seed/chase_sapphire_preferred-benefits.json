@@ -5,6 +5,7 @@
       "title": "DoorDash Credit",
       "amount_minor": 1000,
       "period": "monthly",
+      "mechanism": "checkout_discount",
       "eligible_merchants": ["doordash"],
       "enrollment_required": true,
       "booking_required": false,

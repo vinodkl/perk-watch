@@ -24,6 +24,9 @@ def _period_bounds(period: str | None, as_of: date, account_year_start: date | s
     if kind in {"quarterly", "quarter"}:
         start = date(as_of.year, ((as_of.month - 1) // 3) * 3 + 1, 1)
         return start, _add_months(start, 3) - timedelta(days=1)
+    if kind in {"half_yearly", "half_year", "semiannual", "semi_annual"}:
+        start = date(as_of.year, 1 if as_of.month <= 6 else 7, 1)
+        return start, _add_months(start, 6) - timedelta(days=1)
     if kind in {"yearly", "annual", "calendar_year", "year"}:
         start = date(as_of.year, 1, 1)
         return start, date(as_of.year, 12, 31)
@@ -48,24 +51,45 @@ def calculate_benefit(db: sqlite3.Connection, benefit_id: str, *, as_of: date | 
     if not row:
         return _unknown(benefit_id, "benefit was not found")
     current = _date(as_of)
+    columns = {column[1] for column in db.execute("PRAGMA table_info(benefits)")}
+    mechanism = db.execute("SELECT mechanism FROM benefits WHERE benefit_id = ?", (benefit_id,)).fetchone()[0] if "mechanism" in columns else None
+    if mechanism in {"checkout_discount", "in_app_cash", "points", "perk", "protection"}:
+        return _unknown_row(row, "benefit is not verifiable from statements")
+    if mechanism not in {None, "legacy", "statement_credit"}:
+        return _unknown_row(row, "benefit mechanism is unknown")
     bounds = _period_bounds(row[4], current, account_year_start)
     if row[3] is None:
         return _unknown_row(row, "benefit amount is unknown")
     if bounds is None:
         return _unknown_row(row, "benefit period or account-year boundary is unknown")
     merchants = _merchants(row[5])
-    if not merchants:
-        return _unknown_row(row, "eligible merchants are unknown")
     start, end = bounds
-    transactions = db.execute(
-        "SELECT t.transaction_id, t.posted_date, t.amount_minor, t.merchant, "
-        "cm.benefit_id FROM transactions t LEFT JOIN credit_matches cm "
-        "ON cm.transaction_id = t.transaction_id WHERE t.card_id = ? "
-        "AND t.posted_date BETWEEN ? AND ? ORDER BY t.posted_date, t.transaction_id",
-        (row[1], start.isoformat(), end.isoformat())).fetchall()
+    if mechanism == "statement_credit":
+        transactions = db.execute(
+            "SELECT t.transaction_id, t.posted_date, t.amount_minor, t.merchant, "
+            "cm.benefit_id FROM transactions t LEFT JOIN credit_matches cm "
+            "ON cm.transaction_id = t.transaction_id WHERE t.card_id = ? "
+            "AND t.posted_date BETWEEN ? AND ? ORDER BY t.posted_date, t.transaction_id",
+            (row[1], start.isoformat(), end.isoformat())).fetchall()
+        through = db.execute("SELECT MAX(posted_date) FROM transactions WHERE card_id = ?", (row[1],)).fetchone()[0]
+        if through is None or through < min(current.isoformat(), end.isoformat()):
+            return _unknown_row(row, "statement coverage is incomplete for the active period")
+    else:
+        if not merchants:
+            return _unknown_row(row, "eligible merchants are unknown")
+        transactions = db.execute(
+            "SELECT t.transaction_id, t.posted_date, t.amount_minor, t.merchant, "
+            "cm.benefit_id FROM transactions t LEFT JOIN credit_matches cm "
+            "ON cm.transaction_id = t.transaction_id WHERE t.card_id = ? "
+            "AND t.posted_date BETWEEN ? AND ? ORDER BY t.posted_date, t.transaction_id",
+            (row[1], start.isoformat(), end.isoformat())).fetchall()
     supporting, total, uncertain = [], 0, 0
     for transaction_id, posted_date, amount, merchant, matched_benefit in transactions:
-        if matched_benefit == benefit_id:
+        if mechanism == "statement_credit":
+            if matched_benefit != benefit_id:
+                continue
+            contribution = abs(amount)
+        elif matched_benefit == benefit_id:
             contribution = abs(amount)
         elif merchant and merchant.lower() in merchants:
             contribution = amount
@@ -80,7 +104,8 @@ def calculate_benefit(db: sqlite3.Connection, benefit_id: str, *, as_of: date | 
     result = {"benefit_id": row[0], "card_id": row[1], "title": row[2], "status": "available",
               "used_amount_minor": used, "remaining_amount_minor": int(row[3]) - used,
               "deadline": end.isoformat(), "supporting_transaction_ids": supporting,
-              "reason": "calculated from eligible transactions"}
+              "reason": ("issuer credit confirmed" if supporting else "no issuer credit found through statement coverage")
+              if mechanism == "statement_credit" else "calculated from eligible transactions"}
     if uncertain:
         result["status"] = "unknown"
         result["used_amount_minor"] = None

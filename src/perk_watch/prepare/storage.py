@@ -59,6 +59,9 @@ def connect(path: str | Path) -> sqlite3.Connection:
     columns = {row[1] for row in db.execute("PRAGMA table_info(community_ideas)")}
     if "source_date" not in columns:
         db.execute("ALTER TABLE community_ideas ADD COLUMN source_date TEXT NOT NULL DEFAULT ''")
+    benefit_columns = {row[1] for row in db.execute("PRAGMA table_info(benefits)")}
+    if "mechanism" not in benefit_columns:
+        db.execute("ALTER TABLE benefits ADD COLUMN mechanism TEXT NOT NULL DEFAULT 'statement_credit'")
     return db
 
 
@@ -78,9 +81,9 @@ def replace_card_data(db: sqlite3.Connection, card_id: str, display_name: str,
     for row in sources:
         db.execute("INSERT OR REPLACE INTO sources VALUES (?, ?, ?, ?, ?)", tuple(row[k] for k in ("source_id", "card_id", "kind", "path", "content_sha256")))
     for row in benefits:
-        db.execute("INSERT OR REPLACE INTO benefits VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        db.execute("INSERT OR REPLACE INTO benefits (benefit_id, card_id, title, amount_minor, period, eligible_merchants, enrollment_required, booking_required, terms, source_id, mechanism) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                    (row["benefit_id"], card_id, row["title"], row["amount_minor"], row["period"],
-                    row["eligible_merchants"], row["enrollment_required"], row["booking_required"], row["terms"], row["source_id"]))
+                    row["eligible_merchants"], row["enrollment_required"], row["booking_required"], row["terms"], row["source_id"], row.get("mechanism", "statement_credit")))
     for row in transactions:
         db.execute("INSERT OR REPLACE INTO transactions VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                    (row["transaction_id"], card_id, row["posted_date"], row["description"], row["amount_minor"], row["currency"], row["merchant"], row["source_id"]))

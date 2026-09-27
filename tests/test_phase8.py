@@ -90,6 +90,22 @@ class Phase8Test(unittest.TestCase):
         self.assertEqual(self.client.get("/api/benefits/missing/community").status_code, 404)
         self.assertEqual(self.client.get("/api/benefits/missing").status_code, 404)
 
+    def test_ask_route_returns_selected_typed_evidence_and_trace(self):
+        from types import SimpleNamespace
+        message = SimpleNamespace(content='{"evidence_indices": []}', tool_calls=[])
+        agent_client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(
+            create=lambda **_: SimpleNamespace(choices=[SimpleNamespace(message=message)], usage=None))))
+        client = TestClient(create_app(self.root, agent_client=agent_client))
+        response = client.post("/api/ask", json={"question": "How much travel credit remains?", "as_of": "2026-09-26"})
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["stop_reason"], "no_evidence")
+        self.assertEqual(body["tool_trace"], [])
+        self.assertEqual(body["evidence"], [])
+        self.assertTrue(all(set(item) == {"tool", "result"} for item in body["evidence"]))
+        self.assertNotIn("answer", body)
+        self.assertEqual(client.post("/api/ask", json={"question": "  "}).status_code, 422)
+
     def test_runtime_connection_is_read_only(self):
         with closing(database(self.root)) as db:
             with self.assertRaises(sqlite3.OperationalError):
@@ -105,7 +121,7 @@ class Phase8Test(unittest.TestCase):
         with closing(database(demo_root)) as db:
             briefing = build_briefing(db, as_of="2026-09-26")
         self.assertEqual(len(briefing["groups"]["act_soon"]), 1)
-        self.assertEqual(len(briefing["groups"]["check_yourself"]), 1)
+        self.assertEqual(len(briefing["groups"]["check_yourself"]), 2)
         self.assertTrue(briefing["groups"]["act_soon"][0]["partially_used"])
 
         refused = subprocess.run(
