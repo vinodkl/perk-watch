@@ -43,14 +43,18 @@ def client():
     return _client
 
 
-def benefit_state(benefit_id: str) -> dict:
-    state = next((b for b in track(db, AS_OF, marks)["benefits"] if b["benefit_id"] == benefit_id), None)
+def _as_of(value: str | None) -> date:
+    return date.fromisoformat(value) if value else AS_OF
+
+
+def benefit_state(benefit_id: str, as_of: date = AS_OF) -> dict:
+    state = next((b for b in track(db, as_of, marks)["benefits"] if b["benefit_id"] == benefit_id), None)
     if state is None:
         raise HTTPException(404, "unknown benefit")
     return state
 
 
-def compact_status(state: dict) -> dict:
+def compact_status(state: dict, as_of: date = AS_OF) -> dict:
     """What the model may see: amounts and dates, never transaction descriptions."""
     c = state["current"]
     return {"benefit_id": state["benefit_id"], "title": state["title"], "card": state["card"],
@@ -61,7 +65,7 @@ def compact_status(state: dict) -> dict:
             "history": [{"period": p["label"], "status": p["status"], "used": p["used_minor"] / 100,
                          "amount": p["amount_minor"] / 100} for p in state["periods"]],
             "missed_this_year": state["ytd"]["missed_minor"] / 100,
-            "as_of": AS_OF.isoformat()}
+            "as_of": as_of.isoformat()}
 
 
 # ---- tools the chat model can call -------------------------------------------------------
@@ -82,11 +86,11 @@ TOOLS = [
 ]
 
 
-def run_tool(name: str, args: dict) -> object:
+def run_tool(name: str, args: dict, as_of: date = AS_OF) -> object:
     if name == "get_benefit_status":
         if args["benefit_id"] not in BY_ID:
             return {"error": f"not a tracked benefit; tracked ids: {sorted(BY_ID)}"}
-        return compact_status(benefit_state(args["benefit_id"]))
+        return compact_status(benefit_state(args["benefit_id"], as_of), as_of)
     if name == "search_terms":
         hits = search_benefits(db, args["query"], embedder=OpenAIEmbeddingProvider(client()), limit=3)
         return [{"benefit_id": h["benefit_id"], "title": h["title"], "text": h["text"][:700],
@@ -120,26 +124,47 @@ Rules:
 - Official rules come from the terms. Community tips are ideas, not rules: label them "Community idea" and link the source.
 - If the terms don't settle a question, say so and suggest checking the issuer's terms.
 - Be concrete and brief: start with one line on what's left and the deadline, then 3-5 short bullet suggestions.
-- If the benefit needs enrollment or the credit is only visible in an app, mention it."""
+- If the benefit needs enrollment or the credit is only visible in an app, mention it.
+- When asked whether it's worth it, use the history (e.g. "missed 8 of 8 months") to answer for this user."""
+
+
+ASK_SYSTEM = """You help a cardholder decide which card credits to use next, across all tracked benefits.
+Rules:
+- Dollar amounts, dates and days left must come from the WALLET CONTEXT or tool results. Never invent them.
+- Prioritize credits that are at_risk (expiring soon with value left), then larger open balances.
+- Use search_terms for questions about what a credit covers; label community tips "Community idea" with the source.
+- Be brief: one summary line, then 3-5 bullets naming the benefit, the amount left and the deadline."""
 
 
 class ChatRequest(BaseModel):
     messages: list[dict]
+    as_of: str | None = None
 
 
 class MarkRequest(BaseModel):
     period_start: str
     amount_minor: int | None = None
+    as_of: str | None = None
 
 
-def chat(benefit_id: str, messages: list[dict]) -> dict:
-    state = benefit_state(benefit_id)
-    context = {"status": compact_status(state), "official_terms": state["terms"][:2500],
+def chat(benefit_id: str, messages: list[dict], as_of: date = AS_OF) -> dict:
+    state = benefit_state(benefit_id, as_of)
+    context = {"status": compact_status(state, as_of), "official_terms": state["terms"][:2500],
                "community_tips": run_tool("get_community_tips", {"benefit_id": benefit_id})}
-    convo = [{"role": "system", "content": SYSTEM},
-             {"role": "system", "content": "BENEFIT CONTEXT:\n" + json.dumps(context, indent=1)}]
+    return _converse(SYSTEM, "BENEFIT CONTEXT:\n" + json.dumps(context, indent=1), messages, as_of)
+
+
+def ask(messages: list[dict], as_of: date = AS_OF) -> dict:
+    wallet = [compact_status(b, as_of) for b in track(db, as_of, marks)["benefits"]]
+    for item in wallet:
+        item.pop("history")
+    return _converse(ASK_SYSTEM, "WALLET CONTEXT:\n" + json.dumps(wallet, indent=1), messages, as_of)
+
+
+def _converse(system: str, context_text: str, messages: list[dict], as_of: date) -> dict:
+    convo = [{"role": "system", "content": system}, {"role": "system", "content": context_text}]
     convo += [{"role": m["role"], "content": m["content"]} for m in messages if m.get("role") in {"user", "assistant"}]
-    evidence = [json.dumps(context)]
+    evidence = [context_text]
     trace, calls = [], 0
     while True:
         response = client().chat.completions.create(
@@ -154,7 +179,7 @@ def chat(benefit_id: str, messages: list[dict]) -> dict:
             calls += 1
             try:
                 args = json.loads(call.function.arguments or "{}")
-                result = run_tool(call.function.name, args)
+                result = run_tool(call.function.name, args, as_of)
             except Exception as exc:  # surfaced to the model so it can recover
                 args, result = {}, {"error": str(exc)}
             trace.append({"tool": call.function.name, "args": args})
@@ -188,13 +213,13 @@ def page() -> str:
 
 
 @app.get("/api/tracker")
-def tracker() -> dict:
-    return track(db, AS_OF, marks)
+def tracker(as_of: str | None = None) -> dict:
+    return track(db, _as_of(as_of), marks)
 
 
 @app.post("/api/benefits/{benefit_id}/mark")
 def mark(benefit_id: str, request: MarkRequest) -> dict:
-    state = benefit_state(benefit_id)
+    state = benefit_state(benefit_id, _as_of(request.as_of))
     period = next((p for p in state["periods"] if p["start"] == request.period_start), None)
     if period is None:
         raise HTTPException(400, "unknown period")
@@ -203,7 +228,7 @@ def mark(benefit_id: str, request: MarkRequest) -> dict:
         del marks[key]
     else:
         marks[key] = request.amount_minor or period["amount_minor"]
-    return benefit_state(benefit_id)
+    return benefit_state(benefit_id, _as_of(request.as_of))
 
 
 @app.get("/api/benefits/{benefit_id}/community")
@@ -213,7 +238,12 @@ def community(benefit_id: str) -> dict:
 
 @app.post("/api/benefits/{benefit_id}/chat")
 def benefit_chat(benefit_id: str, request: ChatRequest) -> dict:
-    return chat(benefit_id, request.messages)
+    return chat(benefit_id, request.messages, _as_of(request.as_of))
+
+
+@app.post("/api/ask")
+def wallet_ask(request: ChatRequest) -> dict:
+    return ask(request.messages, _as_of(request.as_of))
 
 
 if __name__ == "__main__":

@@ -13,6 +13,15 @@ uv run --extra ui python prototype/eval_proto.py               # E1-E3 (E2/E3 ca
 uv run python prototype/eval_proto.py --skip-llm               # E1 only
 ```
 
+The real React app in `web/` now uses this API too (Phase 8 look, tracker layout):
+
+```sh
+uv run --extra ui python prototype/app_proto.py   # API on :8765
+cd web && npm run dev                             # UI on :5173, proxies /api to :8765
+```
+
+Set `PERKWATCH_API` to point Vite at another API.
+
 Reads `$PERKWATCH_DATA_DIR/prepared/perkwatch.sqlite` read-only (default `data/real`). Optional local files, never committed:
 
 - `prototype/community_tips.json`: collected tips.

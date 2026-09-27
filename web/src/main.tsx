@@ -2,28 +2,42 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import './theme.css'
 
-type Item = {
-  benefit_id: string; title: string; card_name: string; status: string; reason?: string
-  action?: string; amount_minor?: number | null; used_amount_minor?: number | null
-  remaining_amount_minor?: number | null; deadline?: string | null; period?: string | null
-  partially_used?: boolean
+type Credit = { transaction_id: string; date: string; amount_minor: number }
+type Period = {
+  label: string; start: string; end: string; amount_minor: number; used_minor: number
+  status: 'used' | 'partial' | 'missed' | 'pending' | 'unmarked' | 'at_risk' | 'open'; credits: Credit[]; marked: boolean
 }
-type Briefing = {
-  as_of: string; groups: { act_soon: Item[]; check_yourself: Item[]; on_track: Item[] }
-  unknown_reason_groups: { reason: string; count: number; action: string }[]
-  statements: { card_id: string; display_name: string; first_posted_date: string | null; last_posted_date: string | null; stale: boolean }[]
+type Benefit = {
+  benefit_id: string; card_id: string; card: string; title: string; period: string; tracking: 'auto' | 'manual'
+  category: string; current: Period & { days_left: number; remaining_minor: number }; periods: Period[]
+  ytd: { captured_minor: number; missed_minor: number }; terms: string
 }
-type Status = { last_preparation_time?: string | null }
-const cardPriority = (card: Briefing['statements'][number]) => /amex|american express/i.test(`${card.card_id} ${card.display_name}`) ? 0 : /chase/i.test(`${card.card_id} ${card.display_name}`) ? 1 : 2
-const money = (minor?: number | null) => minor == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(minor / 100)
+type Tracker = {
+  as_of: string; data_through: Record<string, string | null>
+  totals: { captured_minor: number; missed_minor: number; at_risk_minor: number }; benefits: Benefit[]
+}
+type Tip = { tip: string; source_url: string; source_title?: string; source_date?: string; last_verified?: string }
+type Msg = { role: 'user' | 'assistant'; content: string; tools?: string[]; unverified?: string[]; pending?: boolean }
+
+const PERIODS = ['monthly', 'quarterly', 'semiannual', 'annual'] as const
+const PERIOD_NAME: Record<string, string> = { monthly: 'Monthly', quarterly: 'Quarterly', semiannual: 'Semi-annual', annual: 'Annual' }
+const PERIOD_UNIT: Record<string, string> = { monthly: 'month', quarterly: 'quarter', semiannual: 'half', annual: 'year' }
+const GLYPH: Partial<Record<Period['status'], string>> = { used: '✓', missed: '✕', unmarked: '?' }
+const STATUS_WORD: Record<Period['status'], string> = { used: 'used', partial: 'partly used', missed: 'missed', pending: 'waiting for statement', unmarked: 'not marked', at_risk: 'at risk', open: 'open' }
+const cardPriority = (card: string) => /amex|american express/i.test(card) ? 0 : /chase/i.test(card) ? 1 : 2
+const money = (minor?: number | null) => minor == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: minor % 100 ? 2 : 0, maximumFractionDigits: 2 }).format(minor / 100)
 const fmtDate = (value?: string | null) => value ? new Date(`${value}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'date unavailable'
-const fmtFullDate = (value?: string | null) => value ? new Date(`${value}T00:00:00`).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : 'date unavailable'
-function daysLeft(deadline: string | null | undefined, asOf: string) {
-  if (!deadline) return null
-  return Math.max(0, Math.ceil((Date.parse(`${deadline}T00:00:00Z`) - Date.parse(`${asOf}T00:00:00Z`)) / 86400000))
+const greeting = () => { const h = new Date().getHours(); return h < 12 ? 'Morning' : h < 18 ? 'Afternoon' : 'Evening' }
+const chatStore = new Map<string, Msg[]>()
+
+async function api<T>(url: string, body?: unknown): Promise<T> {
+  const response = await fetch(url, body === undefined ? undefined : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) throw Error(data.detail || `Request failed (${response.status})`)
+  return data as T
 }
 
-function CountUp({ value, currency = true }: { value: number; currency?: boolean }) {
+function CountUp({ value }: { value: number }) {
   const [shown, setShown] = React.useState(value)
   React.useEffect(() => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { setShown(value); return }
@@ -38,39 +52,32 @@ function CountUp({ value, currency = true }: { value: number; currency?: boolean
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
   }, [value])
-  return <>{currency ? money(shown) : shown.toLocaleString()}</>
+  return <>{money(shown)}</>
 }
 
 function App() {
-  const [briefing, setBriefing] = React.useState<Briefing | null>(null)
-  const [status, setStatus] = React.useState<Status>({})
+  const params = new URLSearchParams(location.search)
+  const [tracker, setTracker] = React.useState<Tracker | null>(null)
   const [error, setError] = React.useState('')
-  const [asOf, setAsOf] = React.useState(new URLSearchParams(location.search).get('as_of') || '')
-  const [benefitId, setBenefitId] = React.useState(new URLSearchParams(location.search).get('benefit') || '')
+  const [asOf, setAsOf] = React.useState(params.get('as_of') || '')
+  const [benefitId, setBenefitId] = React.useState(params.get('benefit') || '')
   const [askOpen, setAskOpen] = React.useState(false)
+  const [filter, setFilter] = React.useState<'all' | 'missed' | 'manual'>('all')
+  const reload = React.useCallback(() => api<Tracker>(`/api/tracker${asOf ? `?as_of=${encodeURIComponent(asOf)}` : ''}`)
+    .then(t => { setTracker(t); setError('') }).catch(e => setError(e.message)), [asOf])
+  React.useEffect(() => { reload() }, [reload])
   React.useEffect(() => {
     const syncRoute = () => setBenefitId(new URLSearchParams(location.search).get('benefit') || '')
     window.addEventListener('popstate', syncRoute)
     return () => window.removeEventListener('popstate', syncRoute)
   }, [])
-  React.useEffect(() => {
-    const query = asOf ? `?as_of=${encodeURIComponent(asOf)}` : ''
-    Promise.all([
-      fetch(`/api/briefing${query}`).then(r => { if (!r.ok) throw Error('Could not load briefing'); return r.json() }),
-      fetch('/api/status').then(r => { if (!r.ok) throw Error('Could not load status'); return r.json() }),
-    ]).then(([b, s]) => { setBriefing(b); setStatus(s); setError('') }).catch(e => setError(e.message))
-  }, [asOf])
-  function openEvidence(id: string) {
+  function openBenefit(id: string) {
     setBenefitId(id)
-    const url = new URL(location.href)
-    url.searchParams.set('benefit', id)
-    history.pushState(null, '', url)
+    const url = new URL(location.href); url.searchParams.set('benefit', id); history.pushState(null, '', url)
   }
-  function closeEvidence() {
+  function closeBenefit() {
     setBenefitId('')
-    const url = new URL(location.href)
-    url.searchParams.delete('benefit')
-    history.pushState(null, '', url)
+    const url = new URL(location.href); url.searchParams.delete('benefit'); history.pushState(null, '', url)
   }
   function changeDate(value: string) {
     setAsOf(value)
@@ -78,95 +85,205 @@ function App() {
     value ? url.searchParams.set('as_of', value) : url.searchParams.delete('as_of')
     history.replaceState(null, '', url)
   }
-  if (error) return <main className="message"><h1>PerkWatch</h1><p>{error}. Start the API with <code>python3 scripts/serve.py</code>.</p></main>
-  if (!briefing) return <main className="message">Loading your wallet…</main>
-  const { act_soon: soon, check_yourself: check, on_track: track } = briefing.groups
-  const empty = !soon.length && !track.length
-  const imminentValue = soon.reduce((sum, item) => sum + (item.remaining_amount_minor || 0), 0)
-  const transactionDates = briefing.statements.map(x => x.last_posted_date).filter((x): x is string => !!x).sort()
-  const latestStatement = transactionDates.at(-1)
+  if (error) return <main className="message"><h1>PerkWatch</h1><p>{error}. Start the API with <code>uv run --extra ui python prototype/app_proto.py</code>.</p></main>
+  if (!tracker) return <main className="message">Loading your wallet…</main>
+
+  const atRisk = tracker.benefits.filter(b => b.current.status === 'at_risk').sort((a, b) => b.current.remaining_minor - a.current.remaining_minor)
+  const cards = [...new Set(tracker.benefits.map(b => b.card))].sort((a, b) => cardPriority(a) - cardPriority(b))
+  const through = Object.values(tracker.data_through).filter((x): x is string => !!x).sort()
+  const stale = through.length > 0 && through[0] < tracker.as_of
+  const keep = (b: Benefit) => filter === 'all' || (filter === 'missed' && b.ytd.missed_minor > 0) || (filter === 'manual' && b.tracking === 'manual')
+  const selected = tracker.benefits.find(b => b.benefit_id === benefitId)
+
   return <>
-    <header className="topbar"><div className="brand"><span className="mark">⌕</span><b>PerkWatch</b></div><div className="head-actions"><a href="http://127.0.0.1:8001" className="admin">⚒ &nbsp;Admin</a><label className="date-pill">AS OF <input aria-label="As of date" type="date" value={asOf || briefing.as_of} onChange={e => changeDate(e.target.value)} /></label><span className="avatar">VN</span></div></header>
+    <header className="topbar"><div className="brand"><span className="mark">⌕</span><b>PerkWatch</b></div><div className="head-actions"><label className="date-pill">AS OF <input aria-label="As of date" type="date" value={asOf || tracker.as_of} onChange={e => changeDate(e.target.value)} /></label><span className="avatar">VN</span></div></header>
     <main className="wallet-layout">
-      <aside className="wallet-column"><div className="wallet-intro"><h1>Your wallet</h1><p>Your cards are holding a few things for you. See what expires soon and what PerkWatch can't confirm.</p></div>
-        <div className="card-stack" aria-label="Your cards">{[...briefing.statements].sort((a, b) => cardPriority(a) - cardPriority(b)).slice(0, 2).map((card, i) => <article className={`bank-card bank-card-${i}`} key={card.card_id}><span className="chip"/><b>{card.display_name}</b></article>)}</div>
-        <section className="wallet-summary"><p>About to expire <b className="orange-text"><CountUp value={imminentValue}/></b></p><p>Need your eyes <b className="teal-text"><CountUp value={check.length} currency={false}/></b></p><p>Quietly on track <b className="green-text"><CountUp value={track.length} currency={false}/></b></p><a href="#perks" className="perks-link">Perks &amp; protections <b>listed, not counted →</b></a>
-          {briefing.statements.some(card => card.stale) && <div className="stale-warning">Statements end {fmtDate(latestStatement)}. Later charges aren't counted yet.</div>}
-          <div className="card-dates">{briefing.statements.map(card => <p key={card.card_id}><b>{card.display_name}</b><span>{fmtDate(card.first_posted_date)}–{fmtDate(card.last_posted_date)}</span></p>)}{status.last_preparation_time && <small>PREPARED {new Date(status.last_preparation_time).toLocaleString()}</small>}</div>
+      <aside className="wallet-column">
+        <div className="wallet-intro"><h1>{greeting()}, Vinod.</h1><p>{atRisk.length ? <>{atRisk.length} credit{atRisk.length === 1 ? '' : 's'} expire{atRisk.length === 1 ? 's' : ''} in the next few days. Here's what's left and what slipped by.</> : <>Nothing is about to expire. Here's how your credits are tracking this year.</>}</p></div>
+        <div className="card-stack" aria-label="Your cards">{cards.slice(0, 2).map((card, i) => <article className={`bank-card bank-card-${i}`} key={card}><span className="chip"/><b>{card}</b><small>{tracker.benefits.filter(b => b.card === card).length} CREDITS</small></article>)}</div>
+        <section className="wallet-summary">
+          <p>At risk now <b className="orange-text"><CountUp value={tracker.totals.at_risk_minor}/></b></p>
+          <p>Missed this year <b className="mustard-text"><CountUp value={tracker.totals.missed_minor}/></b></p>
+          <p>Captured this year <b className="green-text"><CountUp value={tracker.totals.captured_minor}/></b></p>
+          <a href="#perks" className="perks-link">Perks &amp; protections <b>listed, not tracked →</b></a>
+          {stale && <div className="stale-warning">Statements end {fmtDate(through[0])}. Credits posted after that aren't counted yet.</div>}
+          <div className="card-dates">{cards.map(card => { const id = tracker.benefits.find(b => b.card === card)!.card_id; return <p key={card}><b>{card}</b><span>through {fmtDate(tracker.data_through[id])}</span></p> })}</div>
         </section>
+        <Legend/>
       </aside>
       <section className="briefing">
-        <div className="welcome"><span className="eyebrow">BRIEFING · {briefing.statements.length} CARDS · {soon.length + check.length + track.length} BENEFITS</span><h2>{soon.length ? 'A few things are waiting for you.' : 'Your benefits at a glance.'}</h2><p>{soon.length ? 'One of your credits expires soon.' : 'Here is what PerkWatch can confirm from your statements.'}</p></div>
-        {empty ? <section className="empty-state"><h2>PerkWatch can't see these yet</h2><p>Nothing can be calculated from the current data. Review these reasons instead of relying on repeated unknown cards.</p><div className="unknown-grid">{briefing.unknown_reason_groups.map(group => <article className="unknown-ticket" key={group.reason}><span className="ticket-cap">NEEDS YOUR EYES <b>?</b></span><b>{group.count} benefit{group.count === 1 ? '' : 's'}</b><p>{plainReason(group.reason)}</p><a href="http://127.0.0.1:8001">{group.action} →</a></article>)}</div><a className="admin-cta" href="http://127.0.0.1:8001">Review in Admin →</a></section> : <>
-          {!!soon.length && <section className="group expiring"><h2 className="eyebrow">EXPIRING SOON</h2>{soon.map(item => <Coupon key={item.benefit_id} item={item} asOf={briefing.as_of} onEvidence={openEvidence}/>)}</section>}
-          {!!check.length && <section className="group"><h2 className="eyebrow">PERKWATCH CAN'T SEE THESE — PEEK YOURSELF</h2><div className="unknown-grid">{check.map(item => <article className="unknown-ticket" key={item.benefit_id}><span className="ticket-cap">{ticketReason(item.reason)}<b>?</b></span><h3>{item.title}</h3><small>{item.card_name}</small><p>{plainReason(item.reason)}</p><button className="evidence-link" onClick={() => openEvidence(item.benefit_id)}>Receipts →</button></article>)}</div></section>}
-          {!!track.length && <section className="group"><h2 className="eyebrow">QUIETLY ON TRACK · {track.length}</h2><div className="track-grid">{track.map(item => <article className="track-stub" key={item.benefit_id} onClick={() => openEvidence(item.benefit_id)}><div><b>{item.title}</b><small>{item.card_name}</small><span>{item.status === 'exhausted' ? 'Used' : `${money(item.remaining_amount_minor)} left`}{item.deadline ? ` · ${fmtDate(item.deadline)}` : ''}</span></div>{item.status === 'exhausted' && <i>USED</i>}</article>)}</div></section>}
-          <section className="perks-strip" id="perks"><span>◇</span><div><b>Perks &amp; protections</b><small>Listed for reference, not counted as credits.</small></div><a href="http://127.0.0.1:8001">Browse →</a></section>
-        </>}
+        <div className="welcome"><span className="eyebrow">BENEFITS · {cards.length} CARDS · {tracker.benefits.length} CREDITS</span>
+          <h2>{atRisk.length ? `${money(tracker.totals.at_risk_minor)} is about to expire.` : 'Your credits at a glance.'}</h2>
+          <p>{tracker.totals.missed_minor ? `You've let ${money(tracker.totals.missed_minor)} slip by so far this year. Let's not add to it.` : 'Nothing missed so far this year.'}</p></div>
+        {!!atRisk.length && <section className="group expiring"><h2 className="eyebrow">EXPIRING SOON · {atRisk.length}</h2><div className="coupon-list">{atRisk.map(b => <Coupon key={b.benefit_id} benefit={b} onOpen={openBenefit}/>)}</div></section>}
+        <div className="filter-row">{(['all', 'missed', 'manual'] as const).map(f => <button key={f} className={`filter-chip ${filter === f ? 'on' : ''}`} onClick={() => setFilter(f)}>{{ all: 'All credits', missed: 'Missed something', manual: 'Manually tracked' }[f]}</button>)}</div>
+        {cards.map(card => {
+          const list = tracker.benefits.filter(b => b.card === card && keep(b))
+          if (!list.length) return null
+          const left = list.reduce((sum, b) => sum + b.current.remaining_minor, 0)
+          return <section className="group card-group" key={card}><h2 className="eyebrow card-eyebrow"><span>{card.toUpperCase()}</span><span>{money(left)} LEFT THIS PERIOD</span></h2>
+            {PERIODS.map(period => {
+              const items = list.filter(b => b.period === period)
+              if (!items.length) return null
+              return <div className="period-block" key={period}><div className="period-head"><span>{PERIOD_NAME[period]}</span><span>resets in {items[0].current.days_left} days</span></div>
+                <div className="benefit-grid">{items.map(b => <BenefitStub key={b.benefit_id} benefit={b} onOpen={openBenefit}/>)}</div></div>
+            })}
+          </section>
+        })}
+        <section className="perks-strip" id="perks"><span>◇</span><div><b>Perks &amp; protections</b><small>Lounge access, insurance and status perks are listed in your terms but not tracked as credits.</small></div></section>
       </section>
     </main>
-    {benefitId && <EvidenceRail benefitId={benefitId} asOf={briefing.as_of} onClose={closeEvidence}/>}
-    {askOpen && <AskRail onClose={() => setAskOpen(false)} onEvidence={id => { setAskOpen(false); openEvidence(id) }}/>}
-    <button className="ask-float" onClick={() => setAskOpen(true)}>Ask PerkWatch — “what's worth doing this week?” <span>→</span></button>
+    {selected && <BenefitRail benefit={selected} asOf={tracker.as_of} dataThrough={tracker.data_through[selected.card_id]} onClose={closeBenefit} onChanged={reload}/>}
+    {askOpen && <AskRail asOf={tracker.as_of} onClose={() => setAskOpen(false)}/>}
+    <button className="ask-float" onClick={() => setAskOpen(true)}>Ask PerkWatch — “what should I use this week?” <span>→</span></button>
   </>
 }
-function Coupon({ item, asOf, onEvidence }: { item: Item; asOf: string; onEvidence: (id: string) => void }) {
-  const days = daysLeft(item.deadline, asOf)
-  return <article className="coupon"><div className="coupon-main"><h3>{item.title}</h3><p className="coupon-subtitle">{item.card_name} · {item.period || 'benefit'}{item.partially_used && item.used_amount_minor != null ? ` · ${money(item.used_amount_minor)} used` : ''}</p>{item.amount_minor && item.used_amount_minor != null && <div className="usage-track"><span style={{ width: `${Math.min(100, item.used_amount_minor / item.amount_minor * 100)}%` }}/></div>}<p className="coupon-reason">{item.reason || 'Available for eligible purchases before the period ends.'}</p><div className="coupon-actions"><button onClick={() => onEvidence(item.benefit_id)}>Receipts</button><button className="secondary" disabled>Ask about it</button></div></div><div className="coupon-stub"><span className="days-stamp">{days == null ? '—' : <><b><CountUp value={days} currency={false}/></b><small>DAYS LEFT</small></>}</span><strong><CountUp value={item.remaining_amount_minor || 0}/></strong><small>left to claim</small></div></article>
+
+function Legend() {
+  const items: [Period['status'], string][] = [['used', 'used'], ['partial', 'partly used'], ['missed', 'missed'], ['at_risk', 'at risk'], ['open', 'open'], ['unmarked', 'manual, not marked'], ['pending', 'waiting for statement']]
+  return <div className="legend">{items.map(([status, label]) => <span key={status}><i className={`dot ${status}`}>{GLYPH[status]}</i>{label}</span>)}</div>
 }
-type Evidence = { benefit_id: string; title: string; card_name: string; amount_minor: number | null; period: string | null; terms: string; statements_through: string | null; period_start: string | null; period_end: string | null; source_reference: { path: string }; calculation: { used_amount_minor: number | null; remaining_amount_minor: number | null; deadline: string | null; status: string; reason: string }; transactions: { transaction_id: string; posted_date: string; description: string; amount_minor: number; matched_by: string | null }[]; not_counted: { transaction_id: string; posted_date: string; description: string; amount_minor: number; reason: string }[] }
-type CommunityIdea = { idea: string; excerpt: string; source_url: string; source_date: string }
-function EvidenceRail({ benefitId, asOf, onClose }: { benefitId: string; asOf: string; onClose: () => void }) {
-  const [data, setData] = React.useState<Evidence | null>(null)
-  const [ideas, setIdeas] = React.useState<CommunityIdea[]>([])
-  const [error, setError] = React.useState('')
-  React.useEffect(() => {
-    const query = `?as_of=${encodeURIComponent(asOf)}`
-    Promise.all([fetch(`/api/benefits/${encodeURIComponent(benefitId)}${query}`), fetch(`/api/benefits/${encodeURIComponent(benefitId)}/transactions${query}`), fetch(`/api/benefits/${encodeURIComponent(benefitId)}/community`)]).then(async ([benefit, transactions, community]) => {
-      if (![benefit, transactions, community].every(r => r.ok)) throw Error('Could not load receipts')
-      const [b, t, c] = await Promise.all([benefit.json(), transactions.json(), community.json()])
-      setData({ ...b, ...t }); setIdeas(c.ideas)
-    }).catch(e => setError(e.message))
-  }, [benefitId, asOf])
+
+function Dots({ periods, large, onToggle }: { periods: Period[]; large?: boolean; onToggle?: (p: Period) => void }) {
+  return <span className={`dots ${large ? 'large' : ''}`}>{periods.map(p => {
+    const dot = <i className={`dot ${p.status}`} title={`${p.label}: ${STATUS_WORD[p.status]} · ${money(p.used_minor)} of ${money(p.amount_minor)}`}>{GLYPH[p.status]}</i>
+    if (!large) return <React.Fragment key={p.start}>{dot}</React.Fragment>
+    return <button key={p.start} className="dot-cell" disabled={!onToggle} onClick={() => onToggle?.(p)}>{dot}<small>{p.label}</small></button>
+  })}</span>
+}
+
+function historyLine(b: Benefit) {
+  if (b.tracking === 'manual') return 'Paid inside the app, so statements never show it. Mark it once you have used it.'
+  const past = b.periods.slice(0, -1)
+  if (!past.length) return 'First period of the year.'
+  const used = past.filter(p => p.status === 'used').length
+  const unit = PERIOD_UNIT[b.period]
+  return `Used ${used} of ${past.length} past ${unit}${past.length === 1 ? '' : 's'}${b.ytd.missed_minor ? ` · ${money(b.ytd.missed_minor)} missed so far` : ''}.`
+}
+
+function Coupon({ benefit: b, onOpen }: { benefit: Benefit; onOpen: (id: string) => void }) {
+  const c = b.current
+  return <article className="coupon"><div className="coupon-main"><h3>{b.title}</h3>
+    <p className="coupon-subtitle">{b.card} · {money(c.used_minor)} of {money(c.amount_minor)} used this {PERIOD_UNIT[b.period]}</p>
+    {b.periods.length > 1 && <div className="coupon-dots"><Dots periods={b.periods}/></div>}
+    <p className="coupon-reason">{historyLine(b)}</p>
+    <div className="coupon-actions"><button onClick={() => onOpen(b.benefit_id)}>Ask about it</button><button className="secondary" onClick={() => onOpen(b.benefit_id)}>Details</button></div></div>
+    <div className="coupon-stub"><span className="days-stamp"><b>{c.days_left}</b><small>DAYS LEFT</small></span><strong><CountUp value={c.remaining_minor}/></strong><small>left to claim</small></div></article>
+}
+
+function BenefitStub({ benefit: b, onOpen }: { benefit: Benefit; onOpen: (id: string) => void }) {
+  const c = b.current
+  const pct = Math.min(100, Math.round(100 * c.used_minor / c.amount_minor))
+  return <article className={`benefit-stub ${c.status}`} onClick={() => onOpen(b.benefit_id)}>
+    <div className="stub-top"><b>{b.title}</b>{c.status === 'used' ? <i className="used-stamp">USED</i> : c.status === 'at_risk' ? <em>{c.days_left}d left</em> : b.tracking === 'manual' ? <em className="manual">manual</em> : null}</div>
+    <div className="stub-bottom">{b.periods.length > 1 && <Dots periods={b.periods}/>}<span className="usage-track slim"><span style={{ width: `${pct}%` }}/></span><span className={`stub-amount ${pct >= 100 ? 'full' : ''}`}>{money(c.used_minor)} / {money(c.amount_minor)}</span></div>
+  </article>
+}
+
+function BenefitRail({ benefit: b, asOf, dataThrough, onClose, onChanged }: { benefit: Benefit; asOf: string; dataThrough: string | null; onClose: () => void; onChanged: () => void }) {
+  const c = b.current
+  const credits = b.periods.flatMap(p => p.credits.map(credit => ({ ...credit, label: p.label })))
+  async function toggle(p: Period) {
+    await api(`/api/benefits/${encodeURIComponent(b.benefit_id)}/mark`, { period_start: p.start, as_of: asOf })
+    onChanged()
+  }
   return <>
-    <button className="rail-scrim" aria-label="Close Receipts" onClick={onClose}/>
-    <aside className="evidence-rail" aria-label="Receipts"><header><b>▤ &nbsp;Receipts</b><button onClick={onClose} aria-label="Close">×</button></header>
-      {!data && !error ? <p>Loading receipts…</p> : error ? <p>{error}</p> : data && <div className="rail-content"><h2>{data.title}</h2><p className="rail-subtitle">{data.card_name} · {data.period || 'benefit'}</p>
-        <section className="receipt"><h3>{data.title} · CURRENT PERIOD</h3><p>{data.period_start && data.period_end ? `${fmtFullDate(data.period_start)} – ${fmtFullDate(data.period_end)}` : data.period || 'PERIOD'} · STATEMENTS THROUGH {fmtDate(data.statements_through)}</p><div className="receipt-line"><span>PER PERIOD</span><b>{money(data.amount_minor)}</b></div>
-          {data.transactions.map(t => <div className="receipt-line" key={t.transaction_id}><span>{fmtDate(t.posted_date)} {t.description} <i>{t.matched_by || 'MATCHED'}</i></span><b>{money(t.amount_minor)}</b></div>)}
-          {data.not_counted.map(t => <div className="not-counted-line" key={t.transaction_id}><span>NOT COUNTED · {fmtDate(t.posted_date)} {t.description}<small>{plainReason(t.reason)}</small></span><b>{money(t.amount_minor)}</b></div>)}
-          <div className="receipt-total"><b>LEFT TO CLAIM</b><strong>{money(data.calculation.remaining_amount_minor)}</strong></div>
-          {data.calculation.status === 'unknown' && <p className="rail-reason">Not counted: {plainReason(data.calculation.reason)}</p>}
-        </section><section className="fine-print"><small>THE FINE PRINT · OFFICIAL TERMS</small><p>{data.terms}</p><a href={data.source_reference.path}>{data.source_reference.path}</a></section>
-        {ideas.map((idea, i) => <article className="community-note" key={`${idea.source_date}-${i}`}><small>COMMUNITY TIP <b>NOT OFFICIAL TERMS</b></small><p>{idea.idea}</p><small>{fmtFullDate(idea.source_date)}</small> · <a href={idea.source_url} target="_blank" rel="noreferrer">Source ↗</a></article>)}
-      </div>}
-      <footer>Amounts come from the calculation engine, not the agent.</footer>
+    <button className="rail-scrim" aria-label="Close benefit" onClick={onClose}/>
+    <aside className="evidence-rail" aria-label={b.title}><header><b>▤ &nbsp;{b.card}</b><button onClick={onClose} aria-label="Close">×</button></header>
+      <div className="rail-content"><h2>{b.title}</h2>
+        <p className="rail-subtitle">{PERIOD_NAME[b.period]} · {b.tracking === 'manual' ? 'tracked by you' : 'tracked from statement credits'}</p>
+        <section className="receipt"><h3>{c.label} · CURRENT PERIOD</h3><p>{fmtDate(c.start)} – {fmtDate(c.end)} · STATEMENTS THROUGH {fmtDate(dataThrough)}</p>
+          <Dots periods={b.periods} large onToggle={b.tracking === 'manual' ? toggle : undefined}/>
+          {b.tracking === 'manual' && <p className="rail-hint">Tap a period to mark it used (or unmark it).</p>}
+          <div className="receipt-line"><span>THIS {PERIOD_UNIT[b.period].toUpperCase()}</span><b>{money(c.amount_minor)}</b></div>
+          {credits.map(credit => <div className="receipt-line" key={credit.transaction_id}><span>{fmtDate(credit.date)} statement credit <i>{credit.label}</i></span><b>−{money(credit.amount_minor)}</b></div>)}
+          {!credits.length && b.tracking === 'auto' && <div className="receipt-line"><span>No statement credits yet this year</span><b>—</b></div>}
+          <div className="receipt-line"><span>MISSED THIS YEAR</span><b className="mustard-text">{money(b.ytd.missed_minor)}</b></div>
+          <div className="receipt-total"><b>{c.status === 'at_risk' ? `LEFT · ${c.days_left} DAYS` : 'LEFT TO CLAIM'}</b><strong>{money(c.remaining_minor)}</strong></div>
+        </section>
+        <section className="chat-card"><small className="section-label">ASK ABOUT THIS BENEFIT</small>
+          <Chat storeKey={b.benefit_id} endpoint={`/api/benefits/${encodeURIComponent(b.benefit_id)}/chat`} asOf={asOf}
+            suggestions={c.remaining_minor > 0 ? ['How can I use what is left before it resets?', 'What counts for this credit?', 'Is this worth it for me?'] : ['What counts for this credit?', 'Any tips for next period?']}
+            placeholder={`Ask anything about ${b.title}…`}/></section>
+        <Community benefitId={b.benefit_id}/>
+        <details className="fine-print"><summary><small>THE FINE PRINT · OFFICIAL TERMS</small></summary><p>{b.terms || 'No terms text in prepared data.'}</p></details>
+      </div>
+      <footer>Amounts come from your statements, not the model.</footer>
     </aside>
   </>
 }
-function AskRail({ onClose, onEvidence }: { onClose: () => void; onEvidence: (id: string) => void }) {
-  const [question, setQuestion] = React.useState('')
-  const [answer, setAnswer] = React.useState<{ evidence: { tool: string; result: any }[]; tool_trace: string[]; stop_reason: string } | null>(null)
-  const [loading, setLoading] = React.useState(false)
+
+function Community({ benefitId }: { benefitId: string }) {
+  const [data, setData] = React.useState<{ blurb: string; tips: Tip[] } | null>(null)
   const [error, setError] = React.useState('')
-  async function ask(event: React.FormEvent) {
-    event.preventDefault(); setLoading(true); setError(''); setAnswer(null)
+  React.useEffect(() => {
+    setData(null); setError('')
+    api<{ blurb: string; tips: Tip[] }>(`/api/benefits/${encodeURIComponent(benefitId)}/community`).then(setData).catch(e => setError(e.message))
+  }, [benefitId])
+  return <article className="community-note"><small>WHAT THE COMMUNITY DOES <b>NOT OFFICIAL TERMS</b></small>
+    {error ? <p>{error}</p> : !data ? <p>Reading community tips…</p> : !data.tips.length ? <p>No community tips collected for this benefit yet.</p> : <>
+      <p className="blurb">{data.blurb}</p>
+      <ul className="tips">{data.tips.map((tip, i) => <li key={i}>{tip.tip} <a href={tip.source_url} target="_blank" rel="noreferrer">{tip.source_title || new URL(tip.source_url).hostname} ↗</a>{tip.last_verified && <small> · verified {fmtDate(tip.last_verified)}</small>}</li>)}</ul></>}
+  </article>
+}
+
+function Chat({ storeKey, endpoint, asOf, suggestions, placeholder }: { storeKey: string; endpoint: string; asOf: string; suggestions: string[]; placeholder: string }) {
+  const [messages, setMessages] = React.useState<Msg[]>(() => chatStore.get(storeKey) || [])
+  const [draft, setDraft] = React.useState('')
+  const log = React.useRef<HTMLDivElement>(null)
+  React.useEffect(() => { setMessages(chatStore.get(storeKey) || []) }, [storeKey])
+  React.useEffect(() => { chatStore.set(storeKey, messages.filter(m => !m.pending)); log.current?.scrollTo({ top: log.current.scrollHeight }) }, [messages, storeKey])
+  const busy = messages.some(m => m.pending)
+  async function send(question: string) {
+    if (!question.trim() || busy) return
+    const history: Msg[] = [...messages, { role: 'user', content: question }]
+    setMessages([...history, { role: 'assistant', content: 'Checking your credits…', pending: true }]); setDraft('')
     try {
-      const response = await fetch('/api/ask', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question }) })
-      if (!response.ok) throw Error('Could not answer that question')
-      setAnswer(await response.json())
-    } catch (e) { setError(e instanceof Error ? e.message : 'Could not answer that question') }
-    finally { setLoading(false) }
+      const reply = await api<{ answer: string; tool_trace: { tool: string }[]; unverified_amounts: string[] }>(endpoint, { messages: history.map(({ role, content }) => ({ role, content })), as_of: asOf })
+      setMessages([...history, { role: 'assistant', content: reply.answer, tools: reply.tool_trace.map(t => t.tool), unverified: reply.unverified_amounts }])
+    } catch (e) {
+      setMessages([...history, { role: 'assistant', content: `Sorry, that failed: ${e instanceof Error ? e.message : e}` }])
+    }
   }
-  const label: Record<string, string> = { evaluate_benefits: 'Calculation coupon', search_benefits: 'Official terms', get_transaction_evidence: 'Receipt line', search_community_ideas: 'Community suggestion · Not an official rule' }
-  return <><button className="rail-scrim" aria-label="Close Ask" onClick={onClose}/><aside className="evidence-rail" aria-label="Ask"><header><b>Ask PerkWatch</b><button onClick={onClose} aria-label="Close">×</button></header><div className="rail-content ask-content"><form onSubmit={ask}><label htmlFor="ask-question">What would you like to know?</label><textarea id="ask-question" value={question} onChange={e => setQuestion(e.target.value)} required maxLength={2000}/><button disabled={loading}>{loading ? 'Checking evidence…' : 'Ask'}</button></form>{error && <p role="alert">{error}</p>}{answer && <><p className="ask-outcome">{answer.stop_reason === 'call_limit' ? 'Call limit reached, results may be incomplete.' : answer.stop_reason === 'retry_exhaustion' ? 'A tool failed after retries.' : answer.stop_reason === 'no_evidence' ? 'No evidence found.' : ''}</p>{answer.evidence.map((item, i) => <article className={`ask-evidence ${item.tool}`} key={`${item.tool}-${i}`}><small>{label[item.tool] || item.tool}</small><pre>{JSON.stringify(item.result, null, 2)}</pre>{item.result.benefit_id && <button className="evidence-link" onClick={() => onEvidence(item.result.benefit_id)}>Receipts →</button>}</article>)}<p className="ask-trace">TOOLS · {answer.tool_trace.join(' → ') || 'none'}</p></>}</div><footer>Only selected runtime evidence is shown.</footer></aside></>
+  return <div className="chat">
+    {!!messages.length && <div className="chat-log" ref={log}>{messages.map((m, i) => <div key={i} className={`msg ${m.role} ${m.pending ? 'pending' : ''}`}>
+      {m.role === 'assistant' ? <Markdown text={m.content}/> : m.content}
+      {!!m.tools?.length && <p className="ask-trace">TOOLS · {m.tools.join(' → ')}</p>}
+      {!!m.unverified?.length && <p className="unverified">⚠ Not found in your data: {m.unverified.join(', ')}</p>}
+    </div>)}</div>}
+    <div className="suggestions">{suggestions.map(s => <button key={s} className="filter-chip" disabled={busy} onClick={() => send(s)}>{s}</button>)}</div>
+    <form className="chat-form" onSubmit={e => { e.preventDefault(); send(draft) }}><input value={draft} onChange={e => setDraft(e.target.value)} placeholder={placeholder} maxLength={2000}/><button disabled={busy || !draft.trim()}>Ask</button></form>
+  </div>
 }
-function ticketReason(reason?: string) {
-  if (reason?.includes('merchant')) return 'UNMATCHED CHARGES'
-  if (reason?.includes('period')) return 'PERIOD UNKNOWN'
-  if (reason?.includes('account-year')) return 'NEEDS A DATE'
-  return 'CHECK THE TERMS'
+
+function Markdown({ text }: { text: string }) {
+  // Minimal renderer for model output: bullets, **bold** and [links](https://...).
+  const inline = (line: string, key: number) => <React.Fragment key={key}>{line.split(/(\*\*[^*]+\*\*|\[[^\]]+\]\(https?:[^)\s]+\))/g).map((part, i) => {
+    const bold = part.match(/^\*\*(.+)\*\*$/)
+    if (bold) return <b key={i}>{bold[1]}</b>
+    const link = part.match(/^\[([^\]]+)\]\((https?:[^)\s]+)\)$/)
+    if (link) return <a key={i} href={link[2]} target="_blank" rel="noreferrer">{link[1]}</a>
+    return part
+  })}</React.Fragment>
+  const blocks: React.ReactNode[] = []
+  let bullets: string[] = []
+  const flush = () => { if (bullets.length) blocks.push(<ul key={blocks.length}>{bullets.map((b, i) => <li key={i}>{inline(b, i)}</li>)}</ul>); bullets = [] }
+  for (const line of text.split('\n')) {
+    const item = line.match(/^\s*(?:[-*•]|\d+\.)\s+(.*)/)
+    if (item) { bullets.push(item[1]); continue }
+    flush()
+    if (line.trim()) blocks.push(<p key={blocks.length}>{inline(line.replace(/^#+\s*/, ''), 0)}</p>)
+  }
+  flush()
+  return <>{blocks}</>
 }
-function plainReason(reason?: string) { return (reason || 'PerkWatch cannot calculate this benefit from current data.').replaceAll('_', ' ').replace(/^./, s => s.toUpperCase()) }
+
+function AskRail({ asOf, onClose }: { asOf: string; onClose: () => void }) {
+  return <><button className="rail-scrim" aria-label="Close Ask" onClick={onClose}/><aside className="evidence-rail" aria-label="Ask PerkWatch"><header><b>Ask PerkWatch</b><button onClick={onClose} aria-label="Close">×</button></header>
+    <div className="rail-content"><h2>What's worth doing?</h2><p className="rail-subtitle">Answers use your tracked credits and official terms. Community tips are labeled.</p>
+      <section className="chat-card"><Chat storeKey="__wallet__" endpoint="/api/ask" asOf={asOf} placeholder="Ask about any of your credits…"
+        suggestions={['What should I use this week?', 'Which credits have I been missing most?', 'Which credit covers airport security fast lanes?']}/></section></div>
+    <footer>Amounts come from your statements, not the model.</footer></aside></>
+}
 
 createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>)
