@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from ..catalog import catalog_by_id
 from ..runtime.app import data_root, database
-from ..runtime.chat import benefit_chat, wallet_ask
+from ..runtime.chat import benefit_chat, wallet_ask, wallet_briefing
 from ..runtime.community import blurb_for, tips_for
 from ..runtime.profile import load_marks, toggle_mark
 from ..runtime.tracker import benefit_state, data_through, track
@@ -52,6 +52,15 @@ def create_app(root: str | Path | None = None, *, chat_client=None, embedder=Non
     def require_benefit(benefit_id: str) -> None:
         if benefit_id not in catalog_by_id():
             raise HTTPException(404, "unknown benefit")
+
+    def report() -> dict:
+        try:
+            return json.loads((data_root(root) / "prepared" / "report.json").read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    # In memory only: runtime never writes prepared data. A new mark or a re-prepare changes the key.
+    briefings: dict[tuple, dict] = {}
 
     def converse(call, *args, request: ChatRequest) -> dict:
         messages = [message.model_dump() for message in request.messages]
@@ -98,15 +107,24 @@ def create_app(root: str | Path | None = None, *, chat_client=None, embedder=Non
     def ask(request: ChatRequest) -> dict:
         return converse(wallet_ask, request=request)
 
+    @app.get("/api/briefing")
+    def briefing(as_of: date | None = None) -> dict:
+        day, current = as_of or date.today(), marks()
+        key = (day.isoformat(), tuple(sorted(current.items())), report().get("finished_at"))
+        if key in briefings:
+            return {**briefings[key], "cached": True}
+        with connection() as db:
+            try:
+                briefings[key] = wallet_briefing(db, as_of=day, marks=current, client=chat_client, embedder=embedder)
+            except RuntimeError as error:
+                raise HTTPException(503, str(error))
+        return {**briefings[key], "cached": False}
+
     @app.get("/api/status")
     def status() -> dict:
         with connection() as db:
             through = data_through(db)
-        try:
-            report = json.loads((data_root(root) / "prepared" / "report.json").read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            report = {}
-        return {"last_preparation_time": report.get("finished_at"), "data_through": through}
+        return {"last_preparation_time": report().get("finished_at"), "data_through": through}
 
     return app
 

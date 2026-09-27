@@ -74,3 +74,17 @@ details.fine-print p{white-space:pre-wrap;font-size:13px}
 @media(max-width:720px){.benefit-grid{grid-template-columns:1fr}.card-eyebrow{flex-direction:column;gap:4px}}
 .wallet-column{position:sticky;top:20px;align-self:start}
 @media(max-width:720px){.wallet-column{position:static}}
+.source{display:inline-block;font:10px 'IBM Plex Mono',monospace;letter-spacing:.06em;border-radius:10px;padding:2px 7px;vertical-align:middle}
+.source.ai{color:#5c4bf5;background:#ebe8ff}
+.agent-trace{margin-top:8px;padding:8px 10px;background:#eee4cf;border-radius:10px;font:11px/1.5 'IBM Plex Mono',monospace;color:#5d4f3f}
+.agent-meta{margin:0}
+.agent-steps{margin:6px 0 0;padding-left:18px}
+.agent-steps li{margin:2px 0;overflow-wrap:anywhere}
+.agent-steps code{color:#2a2118;font-weight:700}
+.step-result{color:#277445}
+.verified{margin:6px 0 0;color:#277445}
+.agent-trace .unverified{font-family:'Public Sans','Arial',sans-serif}
+.ai-plan{margin:6px 0 4px;padding:18px 22px;background:#fffdf8;border:1px solid #d9d3ff;border-radius:18px;box-shadow:0 10px 22px #392d1910;line-height:1.55}
+.ai-plan .eyebrow{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.ai-plan ul{margin:6px 0;padding-left:20px}.ai-plan li{margin:4px 0}.ai-plan p{margin:0 0 6px}
+.ai-plan-loading,.ai-plan-off{color:#766550;font-style:italic}

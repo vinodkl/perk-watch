@@ -17,7 +17,9 @@ type Tracker = {
   totals: { captured_minor: number; missed_minor: number; at_risk_minor: number }; benefits: Benefit[]
 }
 type Tip = { tip: string; source_url: string; source_title?: string; source_date?: string; last_verified?: string }
-type Msg = { role: 'user' | 'assistant'; content: string; tools?: string[]; unverified?: string[]; pending?: boolean }
+type Step = { tool: string; args: Record<string, unknown>; summary: string }
+type Reply = { answer: string; tool_trace: Step[]; unverified_amounts: string[]; amounts_checked: number; model: string }
+type Msg = { role: 'user' | 'assistant'; content: string; reply?: Reply; pending?: boolean }
 
 const PERIODS = ['monthly', 'quarterly', 'semiannual', 'annual'] as const
 const PERIOD_NAME: Record<string, string> = { monthly: 'Monthly', quarterly: 'Quarterly', semiannual: 'Semi-annual', annual: 'Annual' }
@@ -85,7 +87,7 @@ function App() {
     value ? url.searchParams.set('as_of', value) : url.searchParams.delete('as_of')
     history.replaceState(null, '', url)
   }
-  if (error) return <main className="message"><h1>PerkWatch</h1><p>{error}. Start the API with <code>uv run --extra ui python prototype/app_proto.py</code>.</p></main>
+  if (error) return <main className="message"><h1>PerkWatch</h1><p>{error}. Start the API with <code>uv run --extra ui python scripts/serve.py</code>.</p></main>
   if (!tracker) return <main className="message">Loading your wallet…</main>
 
   const atRisk = tracker.benefits.filter(b => b.current.status === 'at_risk').sort((a, b) => b.current.remaining_minor - a.current.remaining_minor)
@@ -115,6 +117,7 @@ function App() {
         <div className="welcome"><span className="eyebrow">BENEFITS · {cards.length} CARDS · {tracker.benefits.length} CREDITS</span>
           <h2>{atRisk.length ? `${money(tracker.totals.at_risk_minor)} is about to expire.` : 'Your credits at a glance.'}</h2>
           <p>{tracker.totals.missed_minor ? `You've let ${money(tracker.totals.missed_minor)} slip by so far this year. Let's not add to it.` : 'Nothing missed so far this year.'}</p></div>
+        <Briefing tracker={tracker}/>
         {!!atRisk.length && <section className="group expiring"><h2 className="eyebrow">EXPIRING SOON · {atRisk.length}</h2><div className="coupon-list">{atRisk.map(b => <Coupon key={b.benefit_id} benefit={b} onOpen={openBenefit}/>)}</div></section>}
         <div className="filter-row">{(['all', 'missed', 'manual'] as const).map(f => <button key={f} className={`filter-chip ${filter === f ? 'on' : ''}`} onClick={() => setFilter(f)}>{{ all: 'All credits', missed: 'Missed something', manual: 'Manually tracked' }[f]}</button>)}</div>
         {cards.map(card => {
@@ -137,6 +140,28 @@ function App() {
     {askOpen && <AskRail asOf={tracker.as_of} onClose={() => setAskOpen(false)}/>}
     <button className="ask-float" onClick={() => setAskOpen(true)}>Ask PerkWatch — “what should I use this week?” <span>→</span></button>
   </>
+}
+
+// One request per as-of date and totals: StrictMode's double effects and re-renders reuse the same promise.
+const briefingCache = new Map<string, Promise<Reply>>()
+
+function Briefing({ tracker }: { tracker: Tracker }) {
+  const key = `${tracker.as_of}|${JSON.stringify(tracker.totals)}`
+  const [state, setState] = React.useState<{ reply?: Reply; error?: string }>({})
+  React.useEffect(() => {
+    let live = true
+    setState({})
+    if (!briefingCache.has(key)) briefingCache.set(key, api<Reply>(`/api/briefing?as_of=${encodeURIComponent(tracker.as_of)}`))
+    briefingCache.get(key)!.then(reply => { if (live) setState({ reply }) },
+      e => { briefingCache.delete(key); if (live) setState({ error: e instanceof Error ? e.message : String(e) }) })
+    return () => { live = false }
+  }, [key])
+  return <section className="ai-plan" aria-live="polite">
+    <h2 className="eyebrow">THIS WEEK'S PLAN <span className="source ai">AI-WRITTEN</span></h2>
+    {state.error ? <p className="ai-plan-off">The AI plan is unavailable ({state.error}). Everything else on this page comes from your statements.</p>
+      : !state.reply ? <p className="ai-plan-loading">Reading your credits and writing a plan…</p>
+      : <><Markdown text={state.reply.answer}/><AgentTrace reply={state.reply} emptyNote="written from your wallet, no tools needed"/></>}
+  </section>
 }
 
 function Legend() {
@@ -204,7 +229,7 @@ function BenefitRail({ benefit: b, asOf, dataThrough, onClose, onChanged }: { be
         <section className="chat-card"><small className="section-label">ASK ABOUT THIS BENEFIT</small>
           <Chat storeKey={b.benefit_id} endpoint={`/api/benefits/${encodeURIComponent(b.benefit_id)}/chat`} asOf={asOf}
             suggestions={c.remaining_minor > 0 ? ['How can I use what is left before it resets?', 'What counts for this credit?', 'Is this worth it for me?'] : ['What counts for this credit?', 'Any tips for next period?']}
-            placeholder={`Ask anything about ${b.title}…`}/></section>
+            placeholder={`Ask anything about ${b.title}…`} emptyNote="answered from this benefit's context, no tools needed"/></section>
         <Community benefitId={b.benefit_id}/>
         <details className="fine-print"><summary><small>THE FINE PRINT · OFFICIAL TERMS</small></summary><p>{b.terms || 'No terms text in prepared data.'}</p></details>
       </div>
@@ -227,7 +252,21 @@ function Community({ benefitId }: { benefitId: string }) {
   </article>
 }
 
-function Chat({ storeKey, endpoint, asOf, suggestions, placeholder }: { storeKey: string; endpoint: string; asOf: string; suggestions: string[]; placeholder: string }) {
+function AgentTrace({ reply, emptyNote }: { reply: Reply; emptyNote: string }) {
+  const steps = reply.tool_trace
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+  return <div className="agent-trace">
+    <p className="agent-meta"><span className="source ai">AI · {reply.model}</span> {steps.length ? plural(steps.length, 'tool call') : emptyNote}</p>
+    {!!steps.length && <ol className="agent-steps">{steps.map((s, i) => <li key={i}>
+      <code>{s.tool}</code>{typeof s.args.query === 'string' && <span> “{s.args.query}”</span>}{s.summary && <span className="step-result"> → {s.summary}</span>}
+    </li>)}</ol>}
+    {reply.unverified_amounts.length
+      ? <p className="unverified">⚠ Not found in your data: {reply.unverified_amounts.join(', ')}</p>
+      : reply.amounts_checked > 0 && <p className="verified">✓ {plural(reply.amounts_checked, 'amount')} found in your data</p>}
+  </div>
+}
+
+function Chat({ storeKey, endpoint, asOf, suggestions, placeholder, emptyNote }: { storeKey: string; endpoint: string; asOf: string; suggestions: string[]; placeholder: string; emptyNote: string }) {
   const [messages, setMessages] = React.useState<Msg[]>(() => chatStore.get(storeKey) || [])
   const [draft, setDraft] = React.useState('')
   const log = React.useRef<HTMLDivElement>(null)
@@ -239,8 +278,8 @@ function Chat({ storeKey, endpoint, asOf, suggestions, placeholder }: { storeKey
     const history: Msg[] = [...messages, { role: 'user', content: question }]
     setMessages([...history, { role: 'assistant', content: 'Checking your credits…', pending: true }]); setDraft('')
     try {
-      const reply = await api<{ answer: string; tool_trace: { tool: string }[]; unverified_amounts: string[] }>(endpoint, { messages: history.map(({ role, content }) => ({ role, content })), as_of: asOf })
-      setMessages([...history, { role: 'assistant', content: reply.answer, tools: reply.tool_trace.map(t => t.tool), unverified: reply.unverified_amounts }])
+      const reply = await api<Reply>(endpoint, { messages: history.map(({ role, content }) => ({ role, content })), as_of: asOf })
+      setMessages([...history, { role: 'assistant', content: reply.answer, reply }])
     } catch (e) {
       setMessages([...history, { role: 'assistant', content: `Sorry, that failed: ${e instanceof Error ? e.message : e}` }])
     }
@@ -248,8 +287,7 @@ function Chat({ storeKey, endpoint, asOf, suggestions, placeholder }: { storeKey
   return <div className="chat">
     {!!messages.length && <div className="chat-log" ref={log}>{messages.map((m, i) => <div key={i} className={`msg ${m.role} ${m.pending ? 'pending' : ''}`}>
       {m.role === 'assistant' ? <Markdown text={m.content}/> : m.content}
-      {!!m.tools?.length && <p className="ask-trace">TOOLS · {m.tools.join(' → ')}</p>}
-      {!!m.unverified?.length && <p className="unverified">⚠ Not found in your data: {m.unverified.join(', ')}</p>}
+      {m.reply && <AgentTrace reply={m.reply} emptyNote={emptyNote}/>}
     </div>)}</div>}
     <div className="suggestions">{suggestions.map(s => <button key={s} className="filter-chip" disabled={busy} onClick={() => send(s)}>{s}</button>)}</div>
     <form className="chat-form" onSubmit={e => { e.preventDefault(); send(draft) }}><input value={draft} onChange={e => setDraft(e.target.value)} placeholder={placeholder} maxLength={2000}/><button disabled={busy || !draft.trim()}>Ask</button></form>
@@ -282,7 +320,8 @@ function AskRail({ asOf, onClose }: { asOf: string; onClose: () => void }) {
   return <><button className="rail-scrim" aria-label="Close Ask" onClick={onClose}/><aside className="evidence-rail" aria-label="Ask PerkWatch"><header><b>Ask PerkWatch</b><button onClick={onClose} aria-label="Close">×</button></header>
     <div className="rail-content"><h2>What's worth doing?</h2><p className="rail-subtitle">Answers use your tracked credits and official terms. Community tips are labeled.</p>
       <section className="chat-card"><Chat storeKey="__wallet__" endpoint="/api/ask" asOf={asOf} placeholder="Ask about any of your credits…"
-        suggestions={['What should I use this week?', 'Which credits have I been missing most?', 'Which credit covers airport security fast lanes?']}/></section></div>
+        suggestions={['What should I use this week?', 'Which credits have I been missing most?', 'Which credit covers airport security fast lanes?']}
+        emptyNote="answered from your wallet, no tools needed"/></section></div>
     <footer>Amounts come from your statements, not the model.</footer></aside></>
 }
 

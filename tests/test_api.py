@@ -105,7 +105,8 @@ class ApiTest(unittest.TestCase):
         client = TestClient(create_app(self.root, chat_client=fake))
         messages = [{"role": "user", "content": "What should I do?"}]
         reply = client.post(f"/api/benefits/{RESY}/chat", json={"messages": messages, "as_of": AS_OF}).json()
-        self.assertEqual(reply, {"answer": "You have $100 left on Resy.", "tool_trace": [], "unverified_amounts": []})
+        self.assertEqual(reply, {"answer": "You have $100 left on Resy.", "tool_trace": [], "unverified_amounts": [],
+                                 "amounts_checked": 1, "model": "gpt-4o-mini"})
         self.assertIn("BENEFIT CONTEXT", fake.requests[0]["messages"][1]["content"])
         reply = client.post("/api/ask", json={"messages": messages, "as_of": AS_OF}).json()
         self.assertEqual(reply["answer"], "Use Resy first.")
@@ -120,6 +121,22 @@ class ApiTest(unittest.TestCase):
             ask = self.client.post("/api/ask", json={"messages": messages})
         self.assertEqual((chat.status_code, ask.status_code), (503, 503))
         self.assertIn("OPENAI_API_KEY", chat.json()["detail"])
+
+    def test_briefing_is_cached_until_marks_change(self):
+        fake = FakeClient([_message("- **$400 Resy Credit**: $100 left."), _message("- Mark Uber Cash once used.")])
+        client = TestClient(create_app(self.root, chat_client=fake))
+        first = client.get("/api/briefing", params={"as_of": AS_OF}).json()
+        again = client.get("/api/briefing", params={"as_of": AS_OF}).json()
+        self.assertEqual((first["cached"], again["cached"], len(fake.requests)), (False, True, 1))
+        self.assertEqual(first["answer"], again["answer"])
+        client.post(f"/api/benefits/{UBER_CASH}/mark", json={"period_start": "2026-09-01", "as_of": AS_OF})
+        after = client.get("/api/briefing", params={"as_of": AS_OF}).json()
+        self.assertEqual((after["cached"], after["answer"], len(fake.requests)), (False, "- Mark Uber Cash once used.", 2))
+
+    def test_briefing_without_openai_key_is_503_and_not_cached(self):
+        with patch("perk_watch.embeddings._api_key", return_value=None):
+            self.assertEqual(self.client.get("/api/briefing", params={"as_of": AS_OF}).status_code, 503)
+            self.assertEqual(self.client.get("/api/briefing", params={"as_of": AS_OF}).status_code, 503)
 
     def test_status_reports_preparation_time_and_data_through(self):
         self.assertEqual(self.client.get("/api/status").json(), {

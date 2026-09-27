@@ -11,7 +11,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from perk_watch.catalog import load_catalog, match_credit
 from perk_watch.prepare.storage import connect
-from perk_watch.runtime.chat import benefit_chat, unverified_amounts
+from perk_watch.runtime.chat import benefit_chat, summarize_result, unverified_amounts, wallet_briefing, BRIEFING_SYSTEM, MODEL
 from perk_watch.runtime.profile import load_marks, toggle_mark
 from perk_watch.runtime.tracker import track
 
@@ -149,6 +149,61 @@ class ChatTest(unittest.TestCase):
     def test_unverified_amounts_accepts_amounts_present_as_plain_numbers(self):
         self.assertEqual(unverified_amounts("Use $12.95 now", '{"remaining": 12.95}'), [])
         self.assertEqual(unverified_amounts("Use $1,000", '{"remaining": 12.95}'), ["$1,000"])
+
+    def test_summarize_result_covers_each_tool_and_errors(self):
+        status = {"title": "$400 Resy Credit", "current_period": {"remaining": 45.0, "status": "at_risk"}}
+        self.assertEqual(summarize_result("get_benefit_status", status), "$400 Resy Credit: $45.00 left, at_risk")
+        self.assertEqual(summarize_result("search_terms", [{"title": "$219 CLEAR+ Credit"}, {"title": "$200 Airline Fee Credit"}]),
+                         "found $219 CLEAR+ Credit, $200 Airline Fee Credit")
+        self.assertEqual(summarize_result("search_terms", []), "no matching terms")
+        self.assertEqual(summarize_result("get_community_tips", [{"tip": "a"}]), "1 community tip")
+        self.assertEqual(summarize_result("get_community_tips", []), "0 community tips")
+        self.assertEqual(summarize_result("get_benefit_status", {"error": "not a tracked benefit; tracked ids: [...]"}),
+                         "error: not a tracked benefit; tracked ids: [...]")
+
+    def test_reply_reports_step_summary_amounts_checked_and_model(self):
+        db = fixture_db([(AMEX, "2026-09-19", "COFFEE SHOP", 700)])
+        call = SimpleNamespace(id="c1", function=SimpleNamespace(name="get_benefit_status", arguments=json.dumps({"benefit_id": RESY})))
+        client = FakeClient([_message(tool_calls=[call]), _message("You have $100 left, $100 by Sep 30.")])
+        reply = benefit_chat(db, RESY, [{"role": "user", "content": "How do I use it?"}], as_of=date(2026, 9, 26), client=client)
+        self.assertEqual(reply["tool_trace"], [{"tool": "get_benefit_status", "args": {"benefit_id": RESY},
+                                                "summary": "$400 Resy Credit: $100.00 left, at_risk"}])
+        self.assertEqual((reply["amounts_checked"], reply["model"]), (1, MODEL))
+
+    def test_briefing_uses_wallet_context_tools_and_no_transaction_text(self):
+        db = fixture_db([(AMEX, "2026-09-19", "COFFEE SHOP", 700)])
+        call = SimpleNamespace(id="c1", function=SimpleNamespace(name="get_community_tips", arguments=json.dumps({"benefit_id": RESY})))
+        client = FakeClient([_message(tool_calls=[call]), _message("- **$400 Resy Credit**: $100 left by Sep 30.")])
+        reply = wallet_briefing(db, as_of=date(2026, 9, 26), client=client)
+        first = client.requests[0]["messages"]
+        self.assertEqual(first[0]["content"], BRIEFING_SYSTEM)
+        self.assertTrue(first[1]["content"].startswith("WALLET CONTEXT:"))
+        self.assertNotIn("COFFEE", first[1]["content"])
+        self.assertEqual(first[2], {"role": "user", "content": "Write this week's plan."})
+        self.assertEqual(reply["tool_trace"], [{"tool": "get_community_tips", "args": {"benefit_id": RESY},
+                                                "summary": "0 community tips for $400 Resy Credit"}])
+        self.assertEqual((reply["unverified_amounts"], reply["amounts_checked"]), ([], 2))
+
+    def test_briefing_context_sorts_at_risk_credits_by_remaining_first(self):
+        db = fixture_db([])
+        client = FakeClient([_message("- plan")])
+        wallet_briefing(db, as_of=date(2026, 9, 26), client=client)
+        context = client.requests[0]["messages"][1]["content"]
+        wallet = json.loads(context.split("WALLET CONTEXT:\n", 1)[1])
+        self.assertEqual([item["title"] for item in wallet[:2]], ["$400 Resy Credit", "$300 lululemon Credit"])
+
+    def test_tool_budget_caps_calls_within_a_single_round(self):
+        db = fixture_db([])
+        calls = [SimpleNamespace(id=f"c{i}", function=SimpleNamespace(name="get_community_tips", arguments=json.dumps({"benefit_id": RESY})))
+                 for i in range(6)]
+        client = FakeClient([_message(tool_calls=calls), _message("Here you go.")])
+        reply = wallet_briefing(db, as_of=date(2026, 9, 26), client=client)
+        self.assertEqual(len(reply["tool_trace"]), 6)
+        self.assertEqual(sum(1 for t in reply["tool_trace"] if t["summary"] != "skipped: tool budget spent"), 4)
+        self.assertEqual(sum(1 for t in reply["tool_trace"] if t["summary"] == "skipped: tool budget spent"), 2)
+        second = client.requests[1]["messages"]
+        self.assertEqual(sum(1 for m in second if isinstance(m, dict) and m.get("role") == "tool"), 6)
+        self.assertNotIn("tools", client.requests[1])
 
 
 if __name__ == "__main__":

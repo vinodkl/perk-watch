@@ -31,6 +31,19 @@ Rules:
 - Use search_terms for questions about what a credit covers; label community tips "Community idea" with the source.
 - Be brief: one summary line, then 3-5 bullets naming the benefit, the amount left and the deadline."""
 
+BRIEFING_SYSTEM = """You write a short plan for this week, shown at the top of a cardholder's credit tracker.
+Rules:
+- Dollar amounts, dates and days left must come from the WALLET CONTEXT or tool results. Never invent them.
+- Write exactly 3 bullets, most urgent first: at_risk credits (value left, ending soon), then the largest open balances.
+- Each bullet starts with the benefit title in bold, then the amount left and the deadline, then one concrete action.
+- Call get_community_tips for the most urgent credit and add its best idea to that bullet, labelled "Community idea".
+- For manual credits (tracking = manual), remind the user to mark them once used.
+- If nothing is at_risk, say so in the first bullet and plan around the largest open balances.
+- The WALLET CONTEXT is already sorted by urgency, most urgent first. Keep that order; do not skip items to reach smaller ones.
+- No greeting, no intro line, no closing line."""
+
+BRIEFING_REQUEST = "Write this week's plan."
+
 TOOLS = [
     {"type": "function", "function": {
         "name": "get_benefit_status", "description": "Current period and history for one tracked benefit.",
@@ -74,6 +87,25 @@ def unverified_amounts(answer: str, evidence_text: str) -> list[str]:
     """Dollar amounts in the answer that appear nowhere in the context or tool results."""
     known = {_norm(m) for m in _MONEY.findall(evidence_text)} | {_norm(m) for m in _NUMBER.findall(evidence_text)}
     return sorted({f"${m}" for m in _MONEY.findall(answer) if _norm(m) not in known})
+
+
+def summarize_result(name: str, result: object, args: dict | None = None) -> str:
+    """One line for the UI's step list: what a tool call found. Never transaction text."""
+    if isinstance(result, dict) and "error" in result:
+        return f"error: {str(result['error'])[:120]}"
+    if name == "get_benefit_status" and isinstance(result, dict):
+        current = result["current_period"]
+        return f"{result['title']}: ${current['remaining']:.2f} left, {current['status']}"
+    if name == "search_terms" and isinstance(result, list):
+        return "found " + ", ".join(hit["title"] for hit in result) if result else "no matching terms"
+    if name == "get_community_tips" and isinstance(result, list):
+        summary = f"{len(result)} community tip{'' if len(result) == 1 else 's'}"
+        benefit_id = (args or {}).get("benefit_id")
+        catalog = catalog_by_id()
+        if benefit_id in catalog:
+            summary += f" for {catalog[benefit_id].title}"
+        return summary
+    return ""
 
 
 def _default_client():
@@ -120,16 +152,26 @@ class _Session:
             if not message.tool_calls:
                 answer = message.content or ""
                 return {"answer": answer, "tool_trace": trace,
-                        "unverified_amounts": unverified_amounts(answer, "\n".join(evidence))}
+                        "unverified_amounts": unverified_amounts(answer, "\n".join(evidence)),
+                        "amounts_checked": len({_norm(m) for m in _MONEY.findall(answer)}), "model": self.model}
             convo.append(message)
             for call in message.tool_calls:
-                calls += 1
                 try:
                     args = json.loads(call.function.arguments or "{}")
-                    result = self.run_tool(call.function.name, args)
                 except Exception as exc:  # returned to the model so it can recover
                     args, result = {}, {"error": str(exc)}
-                trace.append({"tool": call.function.name, "args": args})
+                else:
+                    if calls >= MAX_TOOL_CALLS:
+                        result = {"error": "tool budget spent; answer with what you have"}
+                    else:
+                        calls += 1
+                        try:
+                            result = self.run_tool(call.function.name, args)
+                        except Exception as exc:
+                            result = {"error": str(exc)}
+                summary = "skipped: tool budget spent" if result == {"error": "tool budget spent; answer with what you have"} \
+                    else summarize_result(call.function.name, result, args)
+                trace.append({"tool": call.function.name, "args": args, "summary": summary})
                 payload = json.dumps(result, default=str)
                 evidence.append(payload)
                 convo.append({"role": "tool", "tool_call_id": call.id, "content": payload})
@@ -146,12 +188,27 @@ def benefit_chat(db: sqlite3.Connection, benefit_id: str, messages: list[dict], 
     return session.converse(BENEFIT_SYSTEM, "BENEFIT CONTEXT:\n" + json.dumps(context, indent=1), messages)
 
 
-def wallet_ask(db: sqlite3.Connection, messages: list[dict], *, as_of: date, marks: Marks | None = None,
-               client: Any = None, embedder: Any = None, model: str = MODEL) -> dict:
+def _wallet_context(db: sqlite3.Connection, as_of: date, marks: Marks | None) -> str:
+    """Current period of every credit, without per-period history, to keep the context small.
+    Sorted most urgent first so a truncating or lazy model still sees the top priorities."""
     wallet = []
     for state in track(db, as_of, marks)["benefits"]:
         item = compact_status(state, as_of)
         item.pop("history")
         wallet.append(item)
+    wallet.sort(key=lambda item: (0 if item["current_period"]["status"] == "at_risk" else 1,
+                                  -item["current_period"]["remaining"]))
+    return "WALLET CONTEXT:\n" + json.dumps(wallet, indent=1)
+
+
+def wallet_ask(db: sqlite3.Connection, messages: list[dict], *, as_of: date, marks: Marks | None = None,
+               client: Any = None, embedder: Any = None, model: str = MODEL) -> dict:
     session = _Session(db, as_of, marks, client, embedder, model)
-    return session.converse(WALLET_SYSTEM, "WALLET CONTEXT:\n" + json.dumps(wallet, indent=1), messages)
+    return session.converse(WALLET_SYSTEM, _wallet_context(db, as_of, marks), messages)
+
+
+def wallet_briefing(db: sqlite3.Connection, *, as_of: date, marks: Marks | None = None,
+                    client: Any = None, embedder: Any = None, model: str = MODEL) -> dict:
+    session = _Session(db, as_of, marks, client, embedder, model)
+    return session.converse(BRIEFING_SYSTEM, _wallet_context(db, as_of, marks),
+                            [{"role": "user", "content": BRIEFING_REQUEST}])
