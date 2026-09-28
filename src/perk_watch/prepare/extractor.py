@@ -6,10 +6,16 @@ from typing import Any
 
 from ..privacy import redact_pii
 
+# Bump this whenever the extraction prompt changes meaning, so the on-disk extraction cache
+# (keyed on model + prompt version + source content) is invalidated rather than silently
+# reused with a stale prompt.
+PROMPT_VERSION = "v1"
+
 
 class OpenAIBenefitExtractor:
     def __init__(self, client: Any, model: str = "gpt-4o-mini") -> None:
         self.client, self.model = client, model
+        self.cache_version = f"{model}:{PROMPT_VERSION}"
 
     def __call__(self, text: str, source_ref: str) -> list[dict[str, Any]]:
         response = self.client.chat.completions.create(
