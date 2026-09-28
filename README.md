@@ -35,8 +35,8 @@ flowchart TB
 **Offline** (above SQLite): collecting and preparing data are explicit, manual steps — no automated logins, no bank APIs. **Runtime** (below SQLite): the app only reads prepared data. Its one write is user-confirmed "mark used" for credits a statement can't show, and the agent's `propose_mark` tool can *offer* that mark but never writes it itself.
 
 - **Tracker (`runtime/tracker.py`)**: walks every period of the year and gives each one a status — used, partial, missed, pending, unmarked, at risk, or open — from a hand-checked catalog of credits and a regex per credit over statement lines. No merchant matching, no LLM decides "used."
-- **Search (`runtime/retrieval/search.py`)**: embeds official benefit terms (never transactions) and, when a question names a card, filters to that card first.
-- **Agent loop (`runtime/chat.py`)**: a small tool-using loop (3-4 tools, at most 4 calls per turn) on `gpt-4o-mini`. A code-level grounding check flags any dollar amount in an answer that isn't in the context or a tool result. The model sees a credit's terms, tips, amounts and dates — never transaction descriptions or account details.
+- **Search (`runtime/retrieval/search.py`)**: embeds official benefit terms and community tips (never transactions) and, when a question names a card, filters to that card first.
+- **Agent loop (`runtime/chat.py`)**: a small tool-using loop (5 tools, including two RAG searches over official terms and community tips; at most 4 calls per turn) on `gpt-4o-mini`. A code-level grounding check flags any dollar amount in an answer that isn't in the context or a tool result. The model sees a credit's terms, tips, amounts and dates — never transaction descriptions or account details.
 - **Evals (`evals/run.py`)**: tracker (status/amount correctness), retrieval (recall@3), and chat (code checks + an LLM judge for usefulness only).
 
 ## Screenshots
@@ -46,6 +46,10 @@ flowchart TB
 ![Benefit panel: period history, statement credits, per-benefit chat](screenshots/benefit-chat.png)
 
 ![Wallet Ask calling search_terms](screenshots/wallet-ask.png)
+
+![Wallet Ask calling search_community_tips, the RAG search over community tips](screenshots/community-search.png)
+
+![Evals tab: tracker, retrieval and chat suites, rerun on synthetic data](screenshots/evals.png)
 
 *All screenshots use synthetic demo data (`scripts/build_demo_data.py`), never a real account.*
 
