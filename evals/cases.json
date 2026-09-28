@@ -92,6 +92,33 @@
       "question": "Write this week's plan.",
       "expect_tool": "get_community_tips",
       "checks": ["expected_tool", "names_top_at_risk", "no_unverified_amounts", "community_labelled"]
+    },
+    {
+      "id": "wallet-untracked-card",
+      "benefit_id": null,
+      "question": "Does my Citi Double Cash card have a $300 travel credit I should use before it expires?",
+      "checks": ["no_unverified_amounts", "not_tracked"]
     }
+  ],
+  "perf": [
+    {"id": "perf-resy", "benefit_id": "amex_platinum_400_resy_credit",
+     "question": "How can I use what is left before it resets?"},
+    {"id": "perf-walmart", "benefit_id": "amex_platinum_walmart_monthly_membership_credit",
+     "question": "I keep missing this. Is it worth it for me?"},
+    {"id": "perf-uber-cash", "benefit_id": "amex_platinum_200_uber_cash",
+     "question": "What should I do with this before the month ends?"},
+    {"id": "perf-wallet-clear-lookup", "benefit_id": null,
+     "question": "Which credit covers airport security fast lanes?"},
+    {"id": "perf-wallet-community-tip-search", "benefit_id": null,
+     "question": "What do other cardholders do to get their gym credit for Equinox to apply?"},
+    {"id": "perf-wallet-compare-multi-step", "benefit_id": null,
+     "question": "Compare my Resy and lululemon credits: which have I used more reliably this year, and one community idea for the weaker one?"},
+    {"id": "perf-weekly-briefing", "kind": "briefing", "benefit_id": null, "question": "Write this week's plan."}
+  ],
+  "retrieval_community": [
+    {"question": "what do people do to use the lululemon credit", "benefit_id": "amex_platinum_300_lululemon_credit"},
+    {"question": "ways to use my Resy credit before it resets", "benefit_id": "amex_platinum_400_resy_credit"},
+    {"question": "tips for making the Equinox gym credit apply", "benefit_id": "amex_platinum_300_equinox_credit"},
+    {"question": "how do people make the CLEAR airport security credit work", "benefit_id": "amex_platinum_219_clear_credit"}
   ]
 }
