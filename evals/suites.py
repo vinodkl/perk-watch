@@ -1,15 +1,17 @@
-"""Three eval suites: E1 tracker (no LLM), E2 retrieval recall@3, E3 chat checks + LLM judge."""
+"""Eval suites: E1 tracker (no LLM), E2 retrieval recall@3, E3 chat checks + LLM judge, perf (cost/latency)."""
 from __future__ import annotations
 
 import json
 import re
 import sqlite3
+import statistics
+import time
 from datetime import date
 from types import SimpleNamespace
 from typing import Any
 
 from perk_watch.runtime.chat import MODEL, benefit_chat, compact_status, wallet_ask, wallet_briefing
-from perk_watch.runtime.retrieval.search import search_benefits
+from perk_watch.runtime.retrieval.search import search_benefits, search_community_ideas
 from perk_watch.runtime.tracker import benefit_state, track
 
 # Title words too generic to show the model named the right credit.
@@ -83,6 +85,20 @@ def run_retrieval(db: sqlite3.Connection, cases: list[dict], embedder: Any, k: i
     return {"cases": len(cases), "hits": hits, f"recall_at_{k}": round(hits / len(cases), 3), "misses": misses}
 
 
+def run_community_retrieval(db: sqlite3.Connection, cases: list[dict], embedder: Any, k: int = 3) -> dict:
+    """recall@k for community tip/idea search (search_community_ideas), separate from official-terms search."""
+    if not cases:
+        return {"cases": 0, "hits": 0, f"recall_at_{k}": None, "misses": []}
+    hits, misses = 0, []
+    for case in cases:
+        top = [h["benefit_id"] for h in search_community_ideas(db, case["question"], embedder=embedder, limit=k)]
+        if case["benefit_id"] in top:
+            hits += 1
+        else:
+            misses.append({"question": case["question"], "expected": case["benefit_id"], f"top{k}": top})
+    return {"cases": len(cases), "hits": hits, f"recall_at_{k}": round(hits / len(cases), 3), "misses": misses}
+
+
 # ---------- E3 chat ----------
 
 JUDGE = """Rate this assistant answer from 1 to 5 for how USEFUL and ACTIONABLE it is for a cardholder
@@ -129,24 +145,68 @@ def check_answer(case: dict, reply: dict, status: dict | None) -> dict[str, bool
         elif name == "names_top_at_risk":
             words = [w for w in re.findall(r"[A-Za-z+]{4,}", case["top_title"]) if w.lower() not in _COMMON_TITLE_WORDS]
             checks[name] = not case["top_title"] or any(w.lower() in answer.lower() for w in words)
+        elif name == "not_tracked":
+            lowered = answer.lower()
+            checks[name] = any(phrase in lowered for phrase in _NOT_TRACKED_PHRASES)
         else:
             raise ValueError(f"unknown check: {name}")
     return checks
 
 
-def judge(client: Any, context: object, question: str, answer: str, model: str = MODEL) -> dict:
-    response = client.chat.completions.create(
-        model=model, response_format={"type": "json_object"},
-        messages=[{"role": "user", "content": JUDGE % (json.dumps(context, default=str), question, answer)}])
-    try:
-        verdict = json.loads(response.choices[0].message.content)
-        return {"score": int(verdict["score"]), "reason": str(verdict.get("reason", ""))}
-    except (ValueError, KeyError, TypeError):
-        return {"score": None, "reason": "judge returned invalid JSON"}
+# Phrases accepted as "this isn't one of your tracked credits" for the not_tracked check.
+_NOT_TRACKED_PHRASES = [
+    "not tracked", "don't track", "doesn't track", "not one of your", "no record",
+    "not a credit i track", "not in your wallet", "isn't tracked", "don't have that card",
+    "doesn't have that card", "not have that card", "can't find", "cannot find",
+    "not a card you have", "not a tracked", "no tracked", "do not have access",
+    "don't have access", "doesn't have access", "no specific benefit", "not something i track",
+    "not part of your", "not associated with your", "no information about that card",
+    "no access to any", "not have any information", "only have access", "you'll need to check",
+    "you will need to check", "check its terms", "check your card's terms", "check with your card issuer",
+    "not something i have", "i don't have information", "no information on that", "not one i track",
+    "not a benefit i have", "unable to find", "i'm not able to find", "not linked to",
+    "does not have a", "doesn't have a", "does not track", "isn't one of your", "not one of the",
+]
+
+
+# Default judge model kept for backward compatibility; gpt-4o is recommended for more reliable judging
+# (pass --judge-model gpt-4o on the CLI).
+JUDGE_MODEL = MODEL
+
+
+def judge(client: Any, context: object, question: str, answer: str, model: str = JUDGE_MODEL, runs: int = 1) -> dict:
+    """Ask the judge model to score the answer, averaging `runs` independent calls.
+
+    A judge call that returns invalid JSON scores None for that run and never raises; the run continues
+    and only the valid scores are averaged. If every run is invalid, the overall score is None.
+    """
+    scores: list[int | None] = []
+    reasons: list[str] = []
+    for _ in range(max(1, runs)):
+        response = client.chat.completions.create(
+            model=model, response_format={"type": "json_object"},
+            messages=[{"role": "user", "content": JUDGE % (json.dumps(context, default=str), question, answer)}])
+        try:
+            verdict = json.loads(response.choices[0].message.content)
+            scores.append(int(verdict["score"]))
+            reasons.append(str(verdict.get("reason", "")))
+        except (ValueError, KeyError, TypeError, json.JSONDecodeError):
+            scores.append(None)
+            reasons.append("judge returned invalid JSON")
+    valid = [s for s in scores if s is not None]
+    mean_score = round(sum(valid) / len(valid), 2) if valid else None
+    spread = round(max(valid) - min(valid), 2) if len(valid) > 1 else (0.0 if valid else None)
+    return {"score": mean_score, "scores": scores, "spread": spread,
+            "reason": reasons[0] if reasons else "", "model": model}
+
+
+def _mean(values: list[float]) -> float | None:
+    values = [v for v in values if v is not None]
+    return round(statistics.mean(values), 4) if values else None
 
 
 def run_chat(db: sqlite3.Connection, cases: list[dict], *, as_of: date, client: Any, embedder: Any = None,
-             marks: dict | None = None) -> dict:
+             marks: dict | None = None, judge_model: str = JUDGE_MODEL, judge_runs: int = 1) -> dict:
     results = []
     for case in cases:
         messages = [{"role": "user", "content": case["question"]}]
@@ -172,14 +232,129 @@ def run_chat(db: sqlite3.Connection, cases: list[dict], *, as_of: date, client: 
             else:
                 context = [compact_status(s, as_of) for s in track(db, as_of, marks)["benefits"]]
         checks = check_answer(case, reply, status)
-        verdict = judge(client, context, case["question"], reply["answer"])
+        verdict = judge(client, context, case["question"], reply["answer"], model=judge_model, runs=judge_runs)
+        # Usage/latency/cost land in the reply once runtime/chat.py records them; .get() keeps this
+        # suite working before and after that lands.
+        usage = reply.get("usage") or {}
         results.append({"id": case["id"], "passed": all(checks.values()), "checks": checks,
-                        "judge_score": verdict["score"], "judge_reason": verdict["reason"],
+                        "judge_score": verdict["score"], "judge_scores": verdict["scores"],
+                        "judge_spread": verdict["spread"], "judge_reason": verdict["reason"],
                         "tools": [t["tool"] for t in reply["tool_trace"]],
-                        "unverified_amounts": reply["unverified_amounts"], "answer": reply["answer"]})
+                        "unverified_amounts": reply["unverified_amounts"], "answer": reply["answer"],
+                        "usage": reply.get("usage"), "latency_ms": reply.get("latency_ms"),
+                        "cost_usd": reply.get("cost_usd")})
     scores = [r["judge_score"] for r in results if r["judge_score"] is not None]
+    spreads = [r["judge_spread"] for r in results if r["judge_spread"] is not None]
+    prompt_tokens = [r["usage"].get("prompt_tokens") for r in results if r.get("usage")]
+    completion_tokens = [r["usage"].get("completion_tokens") for r in results if r.get("usage")]
+    model_calls = [r["usage"].get("model_calls") for r in results if r.get("usage")]
+    costs = [r["cost_usd"] for r in results if r.get("cost_usd") is not None]
+    latencies = [r["latency_ms"] for r in results if r.get("latency_ms") is not None]
     return {"cases": len(results), "passed": sum(r["passed"] for r in results),
-            "mean_judge_score": round(sum(scores) / len(scores), 2) if scores else None, "results": results}
+            "mean_judge_score": round(sum(scores) / len(scores), 2) if scores else None,
+            "mean_judge_spread": _mean(spreads), "judge_model": judge_model, "judge_runs": judge_runs,
+            "totals": {
+                "total_prompt_tokens": sum(prompt_tokens) if prompt_tokens else None,
+                "total_completion_tokens": sum(completion_tokens) if completion_tokens else None,
+                "total_model_calls": sum(model_calls) if model_calls else None,
+                "total_cost_usd": round(sum(costs), 5) if costs else None,
+                "mean_latency_ms": _mean(latencies),
+                "total_latency_ms": sum(latencies) if latencies else None,
+                "cases_missing_usage": sum(1 for r in results if not r.get("usage")),
+            },
+            "results": results}
+
+
+# ---------- perf (cost + latency) ----------
+
+def _percentile(values: list[float], pct: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    rank = (len(ordered) - 1) * pct
+    lo, hi = int(rank), min(int(rank) + 1, len(ordered) - 1)
+    if lo == hi:
+        return ordered[lo]
+    return ordered[lo] + (ordered[hi] - ordered[lo]) * (rank - lo)
+
+
+def _perf_feature(case: dict) -> str:
+    if case.get("kind") == "briefing":
+        return "briefing"
+    return "benefit_chat" if case.get("benefit_id") else "wallet_ask"
+
+
+def _perf_reply(db: sqlite3.Connection, case: dict, *, as_of: date, client: Any, embedder: Any,
+                marks: dict | None) -> dict:
+    messages = [{"role": "user", "content": case["question"]}]
+    if case.get("kind") == "briefing":
+        return wallet_briefing(db, as_of=as_of, marks=marks, client=client, embedder=embedder)
+    if case.get("benefit_id"):
+        return benefit_chat(db, case["benefit_id"], messages, as_of=as_of, marks=marks,
+                            client=client, embedder=embedder)
+    return wallet_ask(db, messages, as_of=as_of, marks=marks, client=client, embedder=embedder)
+
+
+def run_perf(db: sqlite3.Connection, cases: list[dict], *, as_of: date, client: Any, embedder: Any = None,
+             marks: dict | None = None, repeats: int = 1) -> dict:
+    """Latency and cost per feature (benefit_chat, wallet_ask, briefing) over `repeats` runs of each case.
+
+    No LLM judge here (that would add cost this suite is meant to measure); it only exercises the chat
+    functions themselves. Usage/cost fields come from reply.get(...) so this also runs, with missing_usage
+    counted, before runtime/chat.py records them.
+    """
+    by_feature: dict[str, dict[str, list]] = {}
+    for case in cases:
+        feature = _perf_feature(case)
+        stats = by_feature.setdefault(feature, {
+            "latency_ms": [], "prompt_tokens": [], "completion_tokens": [], "model_calls": [],
+            "cost_usd": [], "requests": 0, "missing_usage": 0})
+        for _ in range(max(1, repeats)):
+            start = time.perf_counter()
+            reply = _perf_reply(db, case, as_of=as_of, client=client, embedder=embedder, marks=marks)
+            wall_ms = (time.perf_counter() - start) * 1000
+            stats["requests"] += 1
+            stats["latency_ms"].append(reply.get("latency_ms") if reply.get("latency_ms") is not None else wall_ms)
+            usage = reply.get("usage")
+            if usage:
+                if usage.get("prompt_tokens") is not None:
+                    stats["prompt_tokens"].append(usage["prompt_tokens"])
+                if usage.get("completion_tokens") is not None:
+                    stats["completion_tokens"].append(usage["completion_tokens"])
+                if usage.get("model_calls") is not None:
+                    stats["model_calls"].append(usage["model_calls"])
+            else:
+                stats["missing_usage"] += 1
+            if reply.get("cost_usd") is not None:
+                stats["cost_usd"].append(reply["cost_usd"])
+
+    report: dict[str, Any] = {}
+    all_latency: list[float] = []
+    all_cost: list[float] = []
+    total_requests = 0
+    for feature, stats in by_feature.items():
+        lat = stats["latency_ms"]
+        all_latency += lat
+        all_cost += stats["cost_usd"]
+        total_requests += stats["requests"]
+        report[feature] = {
+            "requests": stats["requests"],
+            "p50_latency_ms": round(_percentile(lat, 0.5), 1) if lat else None,
+            "p95_latency_ms": round(_percentile(lat, 0.95), 1) if lat else None,
+            "mean_prompt_tokens": _mean(stats["prompt_tokens"]),
+            "mean_completion_tokens": _mean(stats["completion_tokens"]),
+            "mean_model_calls": _mean(stats["model_calls"]),
+            "mean_cost_usd": round(_mean(stats["cost_usd"]), 6) if stats["cost_usd"] else None,
+            "total_cost_usd": round(sum(stats["cost_usd"]), 6) if stats["cost_usd"] else None,
+            "missing_usage": stats["missing_usage"],
+        }
+    report["totals"] = {
+        "requests": total_requests,
+        "p50_latency_ms": round(_percentile(all_latency, 0.5), 1) if all_latency else None,
+        "p95_latency_ms": round(_percentile(all_latency, 0.95), 1) if all_latency else None,
+        "total_cost_usd": round(sum(all_cost), 6) if all_cost else None,
+    }
+    return report
 
 
 class CountingClient:
