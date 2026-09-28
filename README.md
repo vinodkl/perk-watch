@@ -80,7 +80,7 @@ uv run python evals/run.py --suite tracker            # synthetic, no model call
 uv run python evals/run.py --suite all --real         # + real data, retrieval and chat (~20 OpenAI calls)
 ```
 
-Last full run on real data: **tracker 31/31** periods matched a commercial tracker's answer key, **retrieval recall@3 8/8**, **chat 5/5** code checks with an LLM-judge mean of **4.2/5**.
+Last full run on real data (Sep 28, 2026): **tracker 31/31** periods matched a commercial tracker's answer key, **retrieval recall@3 11/12** (terms 7/8, community tips 4/4), **chat 8/9** cases passed code checks, and a separate `gpt-4o` judge scored answers **4.15/5** (mean of 3 runs). `--suite perf` measures cost and latency per feature.
 
 Cost: preparing a card costs about 10 small OpenAI calls (blurbs + embeddings, cached between runs); a full eval run costs about 20 calls; a single chat or briefing reply costs 1-2 calls and returns in a few seconds.
 

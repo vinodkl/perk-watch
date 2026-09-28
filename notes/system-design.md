@@ -56,7 +56,7 @@ One bounded tool-calling loop on `gpt-4o-mini` serves three features: the per-be
 
 **What the model sees, in order:**
 
-1. **System prompt:** rules. Dollar amounts, dates and days left must come from the context or a tool result; community tips are labelled "Community idea" with their source; urgent credits come first.
+1. **System prompt:** rules. Dollar amounts, dates and days left must come from the context or a tool result; community tips are labelled the literal label "Community idea" next to their link; urgent credits come first.
 2. **Context, as JSON:** for a benefit chat, that credit's status, full period history, official terms and its community tips, preloaded because the benefit is already known. For wallet Ask and the weekly plan, the current period of every credit, sorted most urgent first.
 3. **The conversation so far**, then the user's question.
 
@@ -74,7 +74,7 @@ One bounded tool-calling loop on `gpt-4o-mini` serves three features: the per-be
 
 **Grounding check:** after generation, code compares every dollar amount in the answer with the context and tool results. The UI shows the check ("N amounts found in your data") and flags any amount it cannot find.
 
-**Transparency:** every answer shows its tool trace (tool, query, one-line result), so a user can see how it got there.
+**Transparency:** every answer shows its tool trace (tool, query, one-line result), so a user can see how it got there. Each reply also returns its tokens, latency and cost.
 
 **Memory:** the browser keeps each chat and resends the whole conversation with every question. The server is stateless and stores no chat history.
 
@@ -99,6 +99,31 @@ The model never sees raw financial records, and nothing at runtime logs in, scra
 - **No live lookups while answering:** the app makes no web requests except model calls. Community tips are collected offline from public pages, paraphrased, and stored with their source link.
 - **What stays out of git:** statements, exports, databases, community sources and generated output live in a local data directory. Only the hand-checked catalog of public issuer facts is committed, and a guard script checks this before each commit.
 
+## Trade-offs
+
+| Decision | Chose | Over | Why |
+| --- | --- | --- | --- |
+| Deciding "used" | One regex per credit on statement-credit lines | An LLM matching transactions to credits | Exact, testable and free; it matches MaxRewards on 31/31 real periods |
+| Known-benefit questions | Preload that credit's terms, tips and history | Retrieving on every question | Complete context with no retrieval misses; RAG is kept for open questions |
+| When to retrieve | Retrieval as a tool the agent chooses | Always-on retrieval before every answer | Fewer tokens and less noise; most questions are about amounts already in context |
+| Retrieval indexes | Two: official terms and community tips | One mixed index | A forum tip can't be presented as an issuer rule |
+| Answer model | `gpt-4o-mini` | A larger model | $0.0002 to $0.0014 per request at 1.5 to 3.3 s p50; answers judge at 4.15 of 5 |
+| Judge model | `gpt-4o`, averaged over 3 runs | The answering model, one run | Removes self-grading bias and cuts score noise, at a small eval-only cost |
+| Vector store | Vectors as JSON in SQLite, cosine in Python | A vector database | About 120 vectors; no extra infrastructure to run |
+| Agent shape | Bounded loop: 5 tools, at most 4 calls | An open-ended agent | Predictable cost and latency; the loop must end with an answer |
+| Data collection | Manual exports | Bank APIs or scraping | No credentials stored, no terms-of-service risk; costs the user a few minutes |
+
+## Error handling
+
+- **Tool errors** (bad arguments, exceptions, unknown benefit IDs) are returned to the model as the tool result, so it can recover instead of crashing the turn.
+- **Tool budget:** after 4 calls, tools are withdrawn and extra calls are answered with "tool budget spent", so the model always ends with an answer.
+- **Unverified amounts** are flagged in the reply and shown in the UI.
+- **Missing data:** a period whose statement hasn't posted yet is "pending", not "missed", with a 10-day posting grace period.
+- **Stale vectors** (text changed since embedding) are skipped, not served.
+- **Evals:** invalid judge JSON is recorded as no score and the run continues.
+
+Each of these is covered by a unit test or eval case; see the problem, data and evaluation notes.
+
 ## Tech stack, cost and latency
 
 | Layer | Choice |
@@ -108,16 +133,16 @@ The model never sees raw financial records, and nothing at runtime logs in, scra
 | API | FastAPI + Uvicorn |
 | UI | React + Vite |
 | Chat model | OpenAI `gpt-4o-mini` |
+| Judge model | OpenAI `gpt-4o` (evals only) |
 | Embeddings | OpenAI `text-embedding-3-small` |
-| Tests | `unittest` (95 tests), plus a local-data guard script |
+| Tests | `unittest` (117 tests), plus a local-data guard script |
 
-**Cost and latency:** preparing a card costs about 10 small OpenAI calls (blurbs and embeddings, cached between runs). A chat or weekly-plan reply costs 1 to 5 calls and returns in a few seconds. A full real-data eval run used 21 chat calls and 11 embedding calls.
+**Cost and latency** (measured, synthetic data, 21 requests): per-benefit chat costs $0.0002 per request at 1.5 s p50; wallet Ask $0.0014 at 2.1 s p50 (4.1 s p95); the weekly plan $0.0013 at 3.3 s p50. Every reply returns its tokens, latency and cost, and `evals/run.py --suite perf` reports them per feature.
 
 ## Known limitations and next steps
 
 - **Credits that never reach a statement** (for example a DoorDash credit spent inside the app) can't be detected by regex. They are tracked manually with a user-confirmed mark.
-- **Term extraction drift:** re-running prepare re-extracts some benefit terms with a model, which can shift embeddings. The latest real-data run missed one retrieval case (the CLEAR+ credit for "airport security fast lanes"). Next step: cache extracted terms by source hash so re-runs are stable.
-- **Community label consistency:** after the community RAG change, 2 of 8 real-data chat cases linked a community source without the "Community idea" label. Next step: tighten the benefit-chat prompt and keep the label check as a gate.
-- **Self-grading judge:** the LLM judge is the same model that answers. A different judge model would remove self-grading bias.
-- **Retrieval evals cover official terms only.** Next step: add community-tip cases to the retrieval suite.
+- **Vocabulary gap in terms retrieval:** the question "fast lane airport security membership" misses the CLEAR+ credit because its official terms never say "airport" or "security". Next step: embed a short plain-language summary per credit alongside its terms.
+- **Wallet Ask context is large** (about 9,000 prompt tokens) because it carries every credit. Next step: send only at-risk and open credits by default.
+- **Untested adversarial input:** prompt-injection and off-topic questions aren't in the eval set yet.
 - **Single user, local only:** no auth, no multi-user storage, and card coverage is limited to the 3 cards in the catalog.
