@@ -106,8 +106,14 @@ class ApiTest(unittest.TestCase):
         client = TestClient(create_app(self.root, chat_client=fake))
         messages = [{"role": "user", "content": "What should I do?"}]
         reply = client.post(f"/api/benefits/{RESY}/chat", json={"messages": messages, "as_of": AS_OF}).json()
+        usage = reply.pop("usage")
+        latency_ms = reply.pop("latency_ms")
+        cost_usd = reply.pop("cost_usd")
         self.assertEqual(reply, {"answer": "You have $100 left on Resy.", "tool_trace": [], "unverified_amounts": [],
                                  "amounts_checked": 1, "model": "gpt-4o-mini", "proposals": []})
+        self.assertEqual(usage, {"model_calls": 1, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+        self.assertIsInstance(latency_ms, int)
+        self.assertEqual(cost_usd, 0.0)
         self.assertIn("BENEFIT CONTEXT", fake.requests[0]["messages"][1]["content"])
         reply = client.post("/api/ask", json={"messages": messages, "as_of": AS_OF}).json()
         self.assertEqual(reply["answer"], "Use Resy first.")

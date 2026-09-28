@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import time
 from datetime import date
 from typing import Any
 
@@ -15,11 +16,15 @@ from .tracker import Marks, benefit_state, track
 MODEL = "gpt-4o-mini"
 MAX_TOOL_CALLS = 4
 
+# List prices in USD per million tokens; update these if OpenAI's pricing changes.
+PRICES_PER_MTOK = {"gpt-4o-mini": {"input": 0.15, "output": 0.60}}
+
 BENEFIT_SYSTEM = """You help a cardholder get value from ONE card benefit before it expires.
 Rules:
 - Dollar amounts, dates and days left must come from the BENEFIT CONTEXT or tool results. Never invent them.
-- Official rules come from the terms or search_terms. Community tips (from context, get_community_tips, or
-  search_community_tips) are ideas, not rules: label them "Community idea" and link the source.
+- Official rules come from the terms or search_terms. Any tip from context (community_tips), get_community_tips,
+  or search_community_tips is an idea, not a rule: whenever you mention it or its link, write the literal words
+  "Community idea" right next to that link, every time, with no exceptions.
 - If the terms don't settle a question, say so and suggest checking the issuer's terms.
 - Always open with one line stating the remaining amount and the deadline, whatever the question, then 3-5 short, specific bullet suggestions.
 - If the benefit needs enrollment or the credit is only visible in an app, mention it.
@@ -32,8 +37,9 @@ Rules:
 - Prioritize credits that are at_risk (expiring soon with value left), then larger open balances.
 - Use search_terms for what a credit officially covers or its rules. For "what do people do"/"how do I use it"
   ideas, call search_community_tips (it searches every card's community tips, not just one benefit);
-  get_community_tips is only for the weekly plan. Label anything from search_community_tips or
-  get_community_tips "Community idea" with its source; it is never an official rule.
+  get_community_tips is only for the weekly plan. Any tip from search_community_tips or get_community_tips is
+  never an official rule: whenever you mention it or its link, write the literal words "Community idea" right
+  next to that link, every time, with no exceptions.
 - Be brief: one summary line, then 3-5 bullets naming the benefit, the amount left and the deadline.
 - If the user says they used a manual credit (tracking = manual) this period, call propose_mark and tell them to tap the button to confirm. Never say it is already marked.
 - The WALLET CONTEXT shows only the current period. For anything about past periods, history, reliability or misses, call get_benefit_status for each credit involved before answering; never infer history from the current period."""
@@ -133,6 +139,14 @@ def summarize_result(name: str, result: object, args: dict | None = None) -> str
     return ""
 
 
+def _cost_usd(model: str, prompt_tokens: int, completion_tokens: int) -> float:
+    prices = PRICES_PER_MTOK.get(model)
+    if not prices:
+        return 0.0
+    cost = (prompt_tokens * prices["input"] + completion_tokens * prices["output"]) / 1_000_000
+    return round(cost, 6)
+
+
 def _default_client():
     from openai import OpenAI
     from ..embeddings import _api_key
@@ -191,17 +205,29 @@ class _Session:
         convo: list[Any] = [{"role": "system", "content": system}, {"role": "system", "content": context_text}]
         convo += [{"role": m["role"], "content": m["content"]} for m in messages if m.get("role") in {"user", "assistant"}]
         evidence, trace, calls = [context_text], [], 0
+        model_calls = prompt_tokens = completion_tokens = total_tokens = 0
+        started = time.perf_counter()
         while True:
             # Offer tools until the budget is spent, then force a final answer.
             response = self.client.chat.completions.create(
                 model=self.model, messages=convo, **({"tools": TOOLS} if calls < MAX_TOOL_CALLS else {}))
+            model_calls += 1
+            usage = getattr(response, "usage", None)
+            prompt_tokens += getattr(usage, "prompt_tokens", 0) or 0
+            completion_tokens += getattr(usage, "completion_tokens", 0) or 0
+            total_tokens += getattr(usage, "total_tokens", 0) or 0
             message = response.choices[0].message
             if not message.tool_calls:
                 answer = message.content or ""
+                latency_ms = int((time.perf_counter() - started) * 1000)
                 return {"answer": answer, "tool_trace": trace,
                         "unverified_amounts": unverified_amounts(answer, "\n".join(evidence)),
                         "amounts_checked": len({_norm(m) for m in _MONEY.findall(answer)}), "model": self.model,
-                        "proposals": self.proposals}
+                        "proposals": self.proposals,
+                        "usage": {"model_calls": model_calls, "prompt_tokens": prompt_tokens,
+                                  "completion_tokens": completion_tokens, "total_tokens": total_tokens},
+                        "latency_ms": latency_ms,
+                        "cost_usd": _cost_usd(self.model, prompt_tokens, completion_tokens)}
             convo.append(message)
             for call in message.tool_calls:
                 try:

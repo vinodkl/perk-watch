@@ -13,7 +13,8 @@ from perk_watch.catalog import load_catalog, match_credit
 from perk_watch.prepare.rag_search_index import build_community_embeddings, build_community_tip_embeddings
 from perk_watch.prepare.storage import connect
 from perk_watch.runtime.chat import (TOOLS, _Session, benefit_chat, summarize_result, unverified_amounts,
-                                     wallet_ask, wallet_briefing, BRIEFING_SYSTEM, MODEL)
+                                     wallet_ask, wallet_briefing, BENEFIT_SYSTEM, BRIEFING_SYSTEM, MODEL,
+                                     WALLET_SYSTEM)
 from perk_watch.runtime.profile import load_marks, toggle_mark
 from perk_watch.runtime.tracker import track
 
@@ -231,6 +232,34 @@ class ChatTest(unittest.TestCase):
                   as_of=date(2026, 9, 26), client=client)
         system = client.requests[0]["messages"][0]["content"]
         self.assertIn("call get_benefit_status for each credit involved", system)
+
+    def test_benefit_and_wallet_system_prompts_require_the_literal_community_idea_label(self):
+        for prompt in (BENEFIT_SYSTEM, WALLET_SYSTEM):
+            self.assertIn("community_tips", prompt)
+            self.assertIn('"Community idea"', prompt)
+            self.assertIn("next to that link, every time", prompt)
+
+    def test_reply_includes_usage_latency_and_cost(self):
+        db = fixture_db([(AMEX, "2026-09-19", "COFFEE SHOP", 700)])
+        call = SimpleNamespace(id="c1", function=SimpleNamespace(name="get_benefit_status", arguments=json.dumps({"benefit_id": RESY})))
+        usage = SimpleNamespace(prompt_tokens=100, completion_tokens=20, total_tokens=120)
+        message_with_tool = _message(tool_calls=[call])
+        message_with_tool.usage = usage
+        final = _message("You have $100 left, $100 by Sep 30.")
+        final.usage = SimpleNamespace(prompt_tokens=50, completion_tokens=10, total_tokens=60)
+        client = FakeClient([message_with_tool, final])
+        reply = benefit_chat(db, RESY, [{"role": "user", "content": "How do I use it?"}], as_of=date(2026, 9, 26), client=client)
+        self.assertEqual(reply["usage"], {"model_calls": 2, "prompt_tokens": 150, "completion_tokens": 30, "total_tokens": 180})
+        self.assertIsInstance(reply["latency_ms"], int)
+        self.assertGreaterEqual(reply["latency_ms"], 0)
+        self.assertEqual(reply["cost_usd"], round((150 * 0.15 + 30 * 0.60) / 1_000_000, 6))
+
+    def test_reply_tolerates_missing_usage_on_the_fake_response(self):
+        db = fixture_db([])
+        client = FakeClient([_message("- plan")])
+        reply = wallet_briefing(db, as_of=date(2026, 9, 26), client=client)
+        self.assertEqual(reply["usage"], {"model_calls": 1, "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+        self.assertEqual(reply["cost_usd"], 0.0)
 
 
 class CommunityTipSearchEmbedder:
