@@ -11,16 +11,16 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
-import sqlite3
 from typing import Any, Callable
 
 from ..cards import load_cards
 from ..catalog import load_catalog, match_credit
 from ..staging.raw_data import source_id
-from .benefits import CARDS, FIELDS, load_benefits
+from .benefits import CARDS, load_benefits
 from .blurbs import BlurbWriter, generate_blurbs
 from .community import TIPS_FILE, load_ideas, load_tips
-from .rag_search_index import build_benefit_embeddings, build_community_embeddings, build_community_tip_embeddings
+from .rag_search_index import (build_benefit_embeddings, build_community_embeddings,
+                               build_community_tip_embeddings, snapshot_embeddings_by_hash)
 from .storage import connect, replace_card_data
 from .transactions import load_transactions
 
@@ -34,6 +34,13 @@ def prepare(root: str | Path, *, extractor: Callable[[str, str], Any] | None = N
     db = connect(prepared / "perkwatch.sqlite")
     catalog = load_catalog()
     report: dict[str, Any] = {"schema_version": 2, "started_at": datetime.now(timezone.utc).isoformat(), "cards": {}, "unresolved": []}
+    extraction_cache = _load_extraction_cache(prepared) if extractor else {}
+    extraction_version = getattr(extractor, "cache_version", "") if extractor else ""
+    # Snapshot existing vectors before any card's rows are replaced, so unchanged benefit/idea/tip
+    # text keeps its embedding instead of being re-embedded after the delete-and-reinsert below.
+    benefit_vectors = snapshot_embeddings_by_hash(db, "benefit_embeddings") if embedder else {}
+    community_vectors = snapshot_embeddings_by_hash(db, "community_embeddings") if embedder else {}
+    community_tip_vectors = snapshot_embeddings_by_hash(db, "community_tip_embeddings") if embedder else {}
     try:
         for card_id, display_name in CARDS.items():
             card_dir = raw / card_id.replace("_", "-")
@@ -41,7 +48,8 @@ def prepare(root: str | Path, *, extractor: Callable[[str, str], Any] | None = N
             catalog_ids = {b.benefit_id for b in catalog if b.card_id == card_id}
             benefit_rows, transactions = [], []
             counts = Counter()
-            card_extractor = _reusing_extractor(extractor, _previous_benefits(db, card_id), counts) if extractor else None
+            card_extractor = (_caching_extractor(extractor, extraction_cache, counts, extraction_version)
+                              if extractor else None)
             for record in (s for s in sources if s.get("kind") == "benefits"):
                 try:
                     rows, stats = load_benefits(card_id, root / record["path"], card_extractor)
@@ -72,9 +80,9 @@ def prepare(root: str | Path, *, extractor: Callable[[str, str], Any] | None = N
             replace_card_data(db, card_id, display_name, _source_rows(card_id, root, sources), benefit_rows,
                               transactions, ideas, tips)
             if embedder:
-                counts["embeddings"] = build_benefit_embeddings(db, embedder, card_id)
-                counts["community_embeddings"] = build_community_embeddings(db, embedder, card_id)
-                counts["community_tip_embeddings"] = build_community_tip_embeddings(db, embedder, card_id)
+                counts["embeddings"] = build_benefit_embeddings(db, embedder, card_id, reuse=benefit_vectors)
+                counts["community_embeddings"] = build_community_embeddings(db, embedder, card_id, reuse=community_vectors)
+                counts["community_tip_embeddings"] = build_community_tip_embeddings(db, embedder, card_id, reuse=community_tip_vectors)
             card_report: dict[str, Any] = dict(sorted(counts.items()))
             # Catalog credits without a prepared terms row still track, but show no official terms.
             card_report["catalog_missing_terms"] = sorted(catalog_ids - benefit_ids)
@@ -83,6 +91,8 @@ def prepare(root: str | Path, *, extractor: Callable[[str, str], Any] | None = N
                 report["unresolved"].append({"kind": "catalog_terms", "benefit_id": benefit_id})
         report["blurbs"] = generate_blurbs(db, blurb_writer, catalog)
         db.commit()
+        if extractor:
+            _save_extraction_cache(prepared, extraction_cache)
     finally:
         db.close()
     report["finished_at"] = datetime.now(timezone.utc).isoformat()
@@ -106,39 +116,49 @@ def _unmatched_credit_lines(card_id: str, transactions: list[dict[str, Any]], ca
     return count
 
 
-def _previous_benefits(db: sqlite3.Connection, card_id: str) -> dict[str, dict[str, Any]]:
-    columns = ("benefit_id", "terms") + FIELDS
-    return {row[0]: dict(zip(columns, row)) for row in db.execute(
-        f"SELECT {', '.join(columns)} FROM benefits WHERE card_id = ?", (card_id,))}
+_EXTRACTION_CACHE_FILE = "extraction_cache.json"
 
 
-def _reusing_extractor(extractor: Callable[[str, str], Any], previous: dict[str, dict[str, Any]],
-                       counts: Counter) -> Callable[[str, str], Any]:
-    """Reuse fields extracted on an earlier run when a benefit's terms are unchanged.
+def _load_extraction_cache(prepared: Path) -> dict[str, Any]:
+    path = prepared / _EXTRACTION_CACHE_FILE
+    if not path.exists():
+        return {}
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    entries = document.get("entries") if isinstance(document, dict) else None
+    return entries if isinstance(entries, dict) else {}
 
-    Per-benefit extraction requests carry one benefit; if the stored row for that id has the
-    same terms, its fields are returned without calling the model, so re-running preparation
-    does not re-bill extraction.
+
+def _save_extraction_cache(prepared: Path, cache: dict[str, Any]) -> None:
+    path = prepared / _EXTRACTION_CACHE_FILE
+    path.write_text(json.dumps({"schema_version": 1, "entries": cache}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _extraction_cache_key(source: str, text: str, version: str) -> str:
+    return hashlib.sha256(f"{version}\n{source}\n{text}".encode()).hexdigest()
+
+
+def _caching_extractor(extractor: Callable[[str, str], Any], cache: dict[str, Any], counts: Counter,
+                       version: str) -> Callable[[str, str], Any]:
+    """Persist raw extraction output keyed by a hash of the exact request (source + text + model/prompt version).
+
+    Re-running preparation on byte-identical source guides reuses the prior model output
+    verbatim, so it neither re-bills the extraction call nor risks the model re-wording terms
+    text differently (which would drift the stored terms and their embeddings). Keying on the
+    request content itself, rather than comparing against the previously *stored* terms, also
+    covers benefits whose terms are not yet known before extraction (nothing to compare them to).
     """
     def extract(text: str, source: str) -> Any:
-        try:
-            items = json.loads(text).get("benefits")
-        except (json.JSONDecodeError, AttributeError):
-            items = None
-        if isinstance(items, list) and len(items) == 1 and isinstance(items[0], dict):
-            item = items[0]
-            old = previous.get(str(item.get("benefit_id")))
-            if old and old["terms"] == str(item.get("terms", "")).strip():
-                counts["extraction_reused"] += 1
-                # mechanism is not a model field; local repair derives it, as on a fresh run.
-                fields = {field: old[field] for field in FIELDS if field != "mechanism"}
-                for flag in ("enrollment_required", "booking_required"):
-                    fields[flag] = None if fields[flag] is None else bool(fields[flag])
-                if fields["eligible_merchants"] is not None:
-                    fields["eligible_merchants"] = [m for m in str(fields["eligible_merchants"]).split(",") if m]
-                return [{**item, **fields}]
+        key = _extraction_cache_key(source, text, version)
+        if key in cache:
+            counts["extraction_reused"] += 1
+            return cache[key]
         counts["extraction_calls"] += 1
-        return extractor(text, source)
+        result = extractor(text, source)
+        cache[key] = result
+        return result
     return extract
 
 
