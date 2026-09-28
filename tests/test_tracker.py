@@ -10,9 +10,10 @@ from types import SimpleNamespace
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 from perk_watch.catalog import load_catalog, match_credit
+from perk_watch.prepare.rag_search_index import build_community_embeddings, build_community_tip_embeddings
 from perk_watch.prepare.storage import connect
-from perk_watch.runtime.chat import (benefit_chat, summarize_result, unverified_amounts, wallet_ask, wallet_briefing,
-                                     BRIEFING_SYSTEM, MODEL)
+from perk_watch.runtime.chat import (TOOLS, _Session, benefit_chat, summarize_result, unverified_amounts,
+                                     wallet_ask, wallet_briefing, BRIEFING_SYSTEM, MODEL)
 from perk_watch.runtime.profile import load_marks, toggle_mark
 from perk_watch.runtime.tracker import track
 
@@ -230,6 +231,77 @@ class ChatTest(unittest.TestCase):
                   as_of=date(2026, 9, 26), client=client)
         system = client.requests[0]["messages"][0]["content"]
         self.assertIn("call get_benefit_status for each credit involved", system)
+
+
+class CommunityTipSearchEmbedder:
+    """Deterministic keyword vectors so the search tool needs no network."""
+    model = "test-community-search"
+    words = ("gym", "equinox", "billing", "resy", "restaurant")
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        return [[float(text.lower().count(word)) for word in self.words] for text in texts]
+
+
+class SearchCommunityTipsToolTest(unittest.TestCase):
+    """Community tips + ideas both come from prepared, embedded tables, never the network at runtime."""
+
+    def setUp(self):
+        self.db = connect(":memory:")
+        self.db.execute("INSERT INTO cards VALUES (?, ?)", (AMEX, "Amex Platinum"))
+        self.db.execute("INSERT INTO sources VALUES ('s1', ?, 'benefits', 'x.json', 'h')", (AMEX,))
+        self.db.execute(
+            "INSERT INTO benefits (benefit_id, card_id, title, amount_minor, period, eligible_merchants, "
+            "enrollment_required, booking_required, terms, source_id) "
+            "VALUES ('equinox', ?, '$300 Equinox Credit', 30000, 'annual', '', 1, 0, 'terms', 's1')", (AMEX,))
+        self.db.execute(
+            "INSERT INTO community_ideas VALUES ('idea1', ?, 'equinox', "
+            "'Ask the gym front desk to apply the credit manually.', 'excerpt', "
+            "'https://example.test/idea1', 'v1', '2026-01-01')", (AMEX,))
+        self.db.execute(
+            "INSERT INTO community_tips VALUES ('tip1', ?, 'equinox', "
+            "'Call Equinox billing if the gym credit misses a month.', 'https://example.test/tip1', "
+            "'Forum thread', '2026-02-01', '2026-02-10')", (AMEX,))
+        self.embedder = CommunityTipSearchEmbedder()
+        self.assertEqual(build_community_embeddings(self.db, self.embedder), 1)
+        self.assertEqual(build_community_tip_embeddings(self.db, self.embedder), 1)
+
+    def test_tool_is_registered_within_the_existing_call_budget(self):
+        names = [t["function"]["name"] for t in TOOLS]
+        self.assertIn("search_community_tips", names)
+        self.assertEqual(len(names), 5)  # unchanged 4-call budget, one more tool to pick from
+
+    def test_dispatch_returns_both_tables_labelled_as_community_not_official(self):
+        session = _Session(self.db, date(2026, 9, 26), {}, client=FakeClient([]), embedder=self.embedder, model=MODEL)
+        result = session.run_tool("search_community_tips", {"query": "gym equinox billing credit"})
+        labels = {r["label"] for r in result}
+        self.assertEqual(labels, {"Community suggestion", "Community tip"})
+        for hit in result:
+            self.assertEqual(hit["benefit_id"], "equinox")
+            self.assertEqual(hit["benefit"], "$300 Equinox Credit")
+            self.assertTrue(hit["tip"])  # normalized text field, whichever table it came from
+            self.assertTrue(hit["source_url"].startswith("https://"))
+            # never transaction descriptions or account data
+            self.assertEqual(set(hit), {"benefit_id", "benefit", "card", "tip", "source_url", "source_date", "label"})
+
+    def test_no_match_returns_empty_list(self):
+        session = _Session(self.db, date(2026, 9, 26), {}, client=FakeClient([]), embedder=self.embedder, model=MODEL)
+        self.assertEqual(session.run_tool("search_community_tips", {"query": "something unrelated entirely"}), [])
+
+    def test_summarize_result_names_benefits_or_says_no_match(self):
+        hits = [{"benefit": "$300 Equinox Credit"}, {"benefit": "$300 Equinox Credit"}]
+        self.assertEqual(summarize_result("search_community_tips", hits),
+                         "found 2 community tips: $300 Equinox Credit")
+        self.assertEqual(summarize_result("search_community_tips", []), "no matching community tips")
+
+    def test_wallet_ask_dispatches_the_tool_end_to_end(self):
+        call = SimpleNamespace(id="c1", function=SimpleNamespace(
+            name="search_community_tips", arguments=json.dumps({"query": "gym equinox billing credit"})))
+        client = FakeClient([_message(tool_calls=[call]),
+                             _message("Community idea: call Equinox billing if a month is missed.")])
+        reply = wallet_ask(self.db, [{"role": "user", "content": "How do people get their gym credit applied?"}],
+                           as_of=date(2026, 9, 26), client=client, embedder=self.embedder)
+        self.assertEqual(reply["tool_trace"][0]["tool"], "search_community_tips")
+        self.assertTrue(reply["tool_trace"][0]["summary"].startswith("found 2 community tips: $300 Equinox Credit"))
 
 
 if __name__ == "__main__":

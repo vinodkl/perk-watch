@@ -47,8 +47,8 @@ def main() -> None:
     from perk_watch.prepare.blurbs import default_writer
     report = prepare(args.data_dir, extractor=extractor, embedder=embedder, blurb_writer=default_writer(args.model))
     keys = {"benefits", "transactions", "embeddings", "community_processed", "community_skipped", "community_embeddings",
-            "tips_processed", "tips_skipped", "unmatched_credit_lines", "catalog_missing_terms", "extraction_calls",
-            "extraction_reused", "skipped"}
+            "community_tip_embeddings", "tips_processed", "tips_skipped", "unmatched_credit_lines",
+            "catalog_missing_terms", "extraction_calls", "extraction_reused", "skipped"}
     summary = {card: {key: value for key, value in stats.items() if key in keys} for card, stats in report["cards"].items()}
     print(json.dumps({"cards": summary, "blurbs": report["blurbs"], "unresolved_count": report["unresolved_count"]}, sort_keys=True))
 

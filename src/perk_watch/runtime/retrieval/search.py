@@ -119,10 +119,7 @@ class CommunitySearch:
             self.embedder = OpenAIEmbeddingProvider()
         return self.embedder
 
-    def search(self, question: str, *, card_id: str | None = None,
-               benefit_id: str | None = None, limit: int = 5) -> list[dict[str, object]]:
-        if limit < 1:
-            return []
+    def _idea_rows(self, card_id: str | None, benefit_id: str | None) -> list[tuple]:
         clauses, params = ["i.source_date <> ''"], []
         if card_id:
             clauses.append("i.card_id = ?")
@@ -130,30 +127,69 @@ class CommunitySearch:
         if benefit_id:
             clauses.append("i.benefit_id = ?")
             params.append(benefit_id)
-        rows = self.db.execute(
+        return self.db.execute(
             "SELECT i.idea_id, i.card_id, c.display_name, i.benefit_id, b.title, i.idea, i.excerpt, "
             "i.source_url, i.source_date, e.model, e.vector_json, e.content_sha256 "
             "FROM community_ideas i JOIN benefits b ON b.benefit_id = i.benefit_id "
             "JOIN cards c ON c.card_id = i.card_id "
             "LEFT JOIN community_embeddings e ON e.idea_id = i.idea_id WHERE " + " AND ".join(clauses), params
         ).fetchall()
-        if not rows:
+
+    def _tip_rows(self, card_id: str | None, benefit_id: str | None) -> list[tuple]:
+        clauses, params = [], []
+        if card_id:
+            clauses.append("t.card_id = ?")
+            params.append(card_id)
+        if benefit_id:
+            clauses.append("t.benefit_id = ?")
+            params.append(benefit_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        return self.db.execute(
+            "SELECT t.tip_id, t.card_id, c.display_name, t.benefit_id, b.title, t.tip, t.source_url, "
+            "t.source_date, e.model, e.vector_json, e.content_sha256 "
+            "FROM community_tips t JOIN benefits b ON b.benefit_id = t.benefit_id "
+            "JOIN cards c ON c.card_id = t.card_id "
+            f"LEFT JOIN community_tip_embeddings e ON e.tip_id = t.tip_id {where}", params
+        ).fetchall()
+
+    def search(self, question: str, *, card_id: str | None = None,
+               benefit_id: str | None = None, limit: int = 5) -> list[dict[str, object]]:
+        if limit < 1:
+            return []
+        if not card_id and not benefit_id:
+            # A question that names a card is about that card's community content.
+            named = cards_named(self.db, question)
+            if len(named) == 1:
+                card_id = next(iter(named))
+        idea_rows = self._idea_rows(card_id, benefit_id)
+        tip_rows = self._tip_rows(card_id, benefit_id)
+        if not idea_rows and not tip_rows:
             return []
         provider = self._provider()
         query_vector = provider.embed([question])[0]
         ranked = []
-        for row in rows:
+        for row in idea_rows:
             if row[10] is None or row[9] != provider.model or row[11] != idea_hash(row[5], row[6]):
                 continue
             vector = json.loads(row[10])
             score = _cosine(query_vector, vector)
             if score >= _MIN_SCORE:
-                ranked.append((score, row))
-        ranked.sort(key=lambda item: (-item[0], item[1][2], item[1][0]))
-        return [{"idea_id": row[0], "card_id": row[1], "card": row[2], "benefit_id": row[3],
-                 "benefit": row[4], "idea": row[5], "excerpt": row[6], "source_url": row[7],
-                 "source_date": row[8], "label": "Community suggestion", "score": score}
-                for score, row in ranked[:limit]]
+                ranked.append((score, {"idea_id": row[0], "card_id": row[1], "card": row[2],
+                                       "benefit_id": row[3], "benefit": row[4], "idea": row[5],
+                                       "excerpt": row[6], "source_url": row[7], "source_date": row[8],
+                                       "label": "Community suggestion", "score": score}))
+        for row in tip_rows:
+            if row[9] is None or row[8] != provider.model or row[10] != idea_hash(row[5], row[6]):
+                continue
+            vector = json.loads(row[9])
+            score = _cosine(query_vector, vector)
+            if score >= _MIN_SCORE:
+                ranked.append((score, {"tip_id": row[0], "card_id": row[1], "card": row[2],
+                                       "benefit_id": row[3], "benefit": row[4], "tip": row[5],
+                                       "source_url": row[6], "source_date": row[7],
+                                       "label": "Community tip", "score": score}))
+        ranked.sort(key=lambda item: (-item[0], item[1]["card"], item[1].get("idea_id") or item[1]["tip_id"]))
+        return [entry for _, entry in ranked[:limit]]
 
 
 def search_community_ideas(db: sqlite3.Connection, question: str, **filters: object) -> list[dict[str, object]]:

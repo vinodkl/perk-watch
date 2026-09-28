@@ -78,6 +78,14 @@
       "checks": ["expected_tool", "min_tool_calls", "no_unverified_amounts", "community_labelled"]
     },
     {
+      "id": "wallet-community-tip-search",
+      "benefit_id": null,
+      "question": "What do other cardholders do to get their gym credit for Equinox to apply?",
+      "expect_tool": "search_community_tips",
+      "expect_mention": "Equinox",
+      "checks": ["expected_tool", "names_benefit", "no_unverified_amounts", "community_labelled"]
+    },
+    {
       "id": "weekly-briefing",
       "kind": "briefing",
       "benefit_id": null,

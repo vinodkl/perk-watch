@@ -20,7 +20,7 @@ from ..staging.raw_data import source_id
 from .benefits import CARDS, FIELDS, load_benefits
 from .blurbs import BlurbWriter, generate_blurbs
 from .community import TIPS_FILE, load_ideas, load_tips
-from .rag_search_index import build_benefit_embeddings, build_community_embeddings
+from .rag_search_index import build_benefit_embeddings, build_community_embeddings, build_community_tip_embeddings
 from .storage import connect, replace_card_data
 from .transactions import load_transactions
 
@@ -74,6 +74,7 @@ def prepare(root: str | Path, *, extractor: Callable[[str, str], Any] | None = N
             if embedder:
                 counts["embeddings"] = build_benefit_embeddings(db, embedder, card_id)
                 counts["community_embeddings"] = build_community_embeddings(db, embedder, card_id)
+                counts["community_tip_embeddings"] = build_community_tip_embeddings(db, embedder, card_id)
             card_report: dict[str, Any] = dict(sorted(counts.items()))
             # Catalog credits without a prepared terms row still track, but show no official terms.
             card_report["catalog_missing_terms"] = sorted(catalog_ids - benefit_ids)

@@ -10,7 +10,8 @@ from perk_watch.prepare.blurbs import blurb_prompt, generate_blurbs
 from perk_watch.prepare.storage import connect
 from perk_watch.runtime.community import blurb_for, tips_for
 from perk_watch.runtime.retrieval.search import CommunitySearch
-from perk_watch.prepare.rag_search_index import build_community_embeddings
+from perk_watch.prepare.rag_search_index import build_community_embeddings, build_community_tip_embeddings
+from perk_watch.embeddings import idea_hash
 
 
 class FakeEmbedder:
@@ -34,6 +35,10 @@ class Phase4Tests(unittest.TestCase):
             ("idea1", "amex", "hotel", "Book through the travel portal", "Try portal booking", "https://reddit.com/1", "v1", "2026-01-02"),
             ("idea2", "chase", "dining", "Use for dining", "Dining idea", "https://reddit.com/2", "v2", "2026-01-03"),
             ("undated", "amex", "hotel", "Undated", "Undated", "https://reddit.com/3", "v1", "")])
+        self.db.execute(
+            "INSERT INTO community_tips VALUES ('tip1', 'amex', 'hotel', "
+            "'Try booking a hotel package through the travel portal for extra points', "
+            "'https://example.test/tip1', 'Forum', '2026-01-05', '2026-01-06')")
         self.embedder = FakeEmbedder()
 
     def tearDown(self):
@@ -46,6 +51,32 @@ class Phase4Tests(unittest.TestCase):
         self.assertEqual(result[0]["source_date"], "2026-01-02")
         self.assertEqual(result[0]["source_url"], "https://reddit.com/1")
         self.assertEqual(result[0]["label"], "Community suggestion")
+
+    def test_build_community_tip_embeddings_persists_model_and_content_hash(self):
+        """Tips are embedded offline (prepare time) the same way ideas are: never a runtime call."""
+        self.assertEqual(build_community_tip_embeddings(self.db, self.embedder), 1)
+        row = self.db.execute(
+            "SELECT model, content_sha256 FROM community_tip_embeddings WHERE tip_id = 'tip1'").fetchone()
+        self.assertEqual(row[0], "test")
+        self.assertEqual(row[1], idea_hash(
+            "Try booking a hotel package through the travel portal for extra points",
+            "https://example.test/tip1"))
+
+    def test_search_merges_dated_ideas_with_embedded_tips_and_labels_each(self):
+        build_community_embeddings(self.db, self.embedder)
+        build_community_tip_embeddings(self.db, self.embedder)
+        result = CommunitySearch(self.db, self.embedder).search("hotel booking", card_id="amex", benefit_id="hotel")
+        self.assertEqual({item["label"] for item in result}, {"Community suggestion", "Community tip"})
+        tip_hit = next(item for item in result if item["label"] == "Community tip")
+        self.assertEqual(tip_hit["source_url"], "https://example.test/tip1")
+        self.assertEqual(tip_hit["benefit_id"], "hotel")
+
+    def test_stale_tip_content_is_excluded_from_search_until_reembedded(self):
+        """The content-hash staleness check applies to tips exactly as it does to official terms and ideas."""
+        build_community_tip_embeddings(self.db, self.embedder)
+        self.db.execute("UPDATE community_tips SET tip = 'Completely different wording now' WHERE tip_id = 'tip1'")
+        result = CommunitySearch(self.db, self.embedder).search("hotel booking", card_id="amex", benefit_id="hotel")
+        self.assertFalse(any(item["label"] == "Community tip" for item in result))
 
 def _add_tip(self, benefit_id, tip, tip_id):
         self.db.execute("INSERT INTO community_tips VALUES (?, 'amex', ?, ?, 'https://example.test/t', 'Thread', '2026-09-01', '2026-09-20')",

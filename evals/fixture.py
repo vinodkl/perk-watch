@@ -7,7 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from perk_watch.catalog import load_catalog
-from perk_watch.prepare.rag_search_index import build_benefit_embeddings
+from perk_watch.prepare.rag_search_index import (
+    build_benefit_embeddings, build_community_embeddings, build_community_tip_embeddings)
 from perk_watch.prepare.storage import connect
 
 AMEX, CHASE, RESERVE = "amex_platinum", "chase_sapphire_preferred", "chase_sapphire_reserve"
@@ -72,6 +73,13 @@ COMMUNITY_IDEAS = [
      "Synthetic paraphrase.", "https://example.test/community/resy-1", "synthetic-v1", "2026-08-01"),
 ]
 
+# (tip_id, card_id, benefit_id, tip, source_url, source_title, source_date, last_verified)
+COMMUNITY_TIPS = [
+    ("tip-equinox-1", AMEX, "amex_platinum_300_equinox_credit",
+     "Ask the gym front desk to manually apply the Equinox+ app membership if the credit does not auto-post.",
+     "https://example.test/community/equinox-1", "Synthetic forum thread", "2026-07-15", "2026-08-01"),
+]
+
 
 class FixtureEmbedder:
     """Deterministic keyword vectors, so fixture search needs no network."""
@@ -100,6 +108,10 @@ def build_fixture(path: str | Path = ":memory:") -> sqlite3.Connection:
         [(b.benefit_id, b.card_id, b.title, b.amount_minor, b.period, int(b.enrollment_required),
           TERMS[b.benefit_id], f"s-{b.card_id}-terms") for b in load_catalog()])
     db.executemany("INSERT INTO community_ideas VALUES (?, ?, ?, ?, ?, ?, ?, ?)", COMMUNITY_IDEAS)
-    build_benefit_embeddings(db, FixtureEmbedder())
+    db.executemany("INSERT INTO community_tips VALUES (?, ?, ?, ?, ?, ?, ?, ?)", COMMUNITY_TIPS)
+    embedder = FixtureEmbedder()
+    build_benefit_embeddings(db, embedder)
+    build_community_embeddings(db, embedder)
+    build_community_tip_embeddings(db, embedder)
     db.commit()
     return db

@@ -21,6 +21,21 @@ def build_community_embeddings(db: sqlite3.Connection, embedder: EmbeddingProvid
     return len(rows)
 
 
+def build_community_tip_embeddings(db: sqlite3.Connection, embedder: EmbeddingProvider,
+                                   card_id: str | None = None) -> int:
+    """Embed collected community tips (`community_tips`) so they are searchable the same way ideas are."""
+    query = ("SELECT tip_id, tip, source_url FROM community_tips WHERE card_id = ? ORDER BY tip_id"
+             if card_id else "SELECT tip_id, tip, source_url FROM community_tips ORDER BY tip_id")
+    rows = db.execute(query, (card_id,) if card_id else ()).fetchall()
+    vectors = embedder.embed([tip for _, tip, _ in rows]) if rows else []
+    if len(vectors) != len(rows):
+        raise ValueError("embedding provider returned the wrong number of vectors")
+    for (tip_id, tip, source_url), vector in zip(rows, vectors):
+        db.execute("INSERT OR REPLACE INTO community_tip_embeddings VALUES (?, ?, ?, ?, ?)",
+                   (tip_id, embedder.model, len(vector), json.dumps(vector), idea_hash(tip, source_url)))
+    return len(rows)
+
+
 def build_benefit_embeddings(db: sqlite3.Connection, embedder: EmbeddingProvider,
                              card_id: str | None = None) -> int:
     """Generate and persist embeddings for prepared benefits."""

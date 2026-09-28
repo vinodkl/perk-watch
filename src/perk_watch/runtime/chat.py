@@ -9,7 +9,7 @@ from typing import Any
 
 from ..catalog import catalog_by_id
 from .community import tips_for
-from .retrieval.search import search_benefits
+from .retrieval.search import search_benefits, search_community_ideas
 from .tracker import Marks, benefit_state, track
 
 MODEL = "gpt-4o-mini"
@@ -18,7 +18,8 @@ MAX_TOOL_CALLS = 4
 BENEFIT_SYSTEM = """You help a cardholder get value from ONE card benefit before it expires.
 Rules:
 - Dollar amounts, dates and days left must come from the BENEFIT CONTEXT or tool results. Never invent them.
-- Official rules come from the terms. Community tips are ideas, not rules: label them "Community idea" and link the source.
+- Official rules come from the terms or search_terms. Community tips (from context, get_community_tips, or
+  search_community_tips) are ideas, not rules: label them "Community idea" and link the source.
 - If the terms don't settle a question, say so and suggest checking the issuer's terms.
 - Always open with one line stating the remaining amount and the deadline, whatever the question, then 3-5 short, specific bullet suggestions.
 - If the benefit needs enrollment or the credit is only visible in an app, mention it.
@@ -29,7 +30,10 @@ WALLET_SYSTEM = """You help a cardholder decide which card credits to use next, 
 Rules:
 - Dollar amounts, dates and days left must come from the WALLET CONTEXT or tool results. Never invent them.
 - Prioritize credits that are at_risk (expiring soon with value left), then larger open balances.
-- Use search_terms for questions about what a credit covers; label community tips "Community idea" with the source.
+- Use search_terms for what a credit officially covers or its rules. For "what do people do"/"how do I use it"
+  ideas, call search_community_tips (it searches every card's community tips, not just one benefit);
+  get_community_tips is only for the weekly plan. Label anything from search_community_tips or
+  get_community_tips "Community idea" with its source; it is never an official rule.
 - Be brief: one summary line, then 3-5 bullets naming the benefit, the amount left and the deadline.
 - If the user says they used a manual credit (tracking = manual) this period, call propose_mark and tell them to tap the button to confirm. Never say it is already marked.
 - The WALLET CONTEXT shows only the current period. For anything about past periods, history, reliability or misses, call get_benefit_status for each credit involved before answering; never infer history from the current period."""
@@ -60,6 +64,12 @@ TOOLS = [
         "name": "get_community_tips", "description": "Source-linked community tips for one benefit. Not official rules.",
         "parameters": {"type": "object", "properties": {"benefit_id": {"type": "string"}},
                        "required": ["benefit_id"], "additionalProperties": False}}},
+    {"type": "function", "function": {
+        "name": "search_community_tips",
+        "description": "Semantic search over community tips and ideas across all benefits on the user's cards, "
+                       "for questions about how cardholders use a credit. Not official rules.",
+        "parameters": {"type": "object", "properties": {"query": {"type": "string"}},
+                       "required": ["query"], "additionalProperties": False}}},
     {"type": "function", "function": {
         "name": "propose_mark", "description": "Offer the user a one-tap button to mark a manually tracked credit used for its current period. It marks nothing; the user must tap to confirm.",
         "parameters": {"type": "object", "properties": {"benefit_id": {"type": "string"}},
@@ -112,6 +122,11 @@ def summarize_result(name: str, result: object, args: dict | None = None) -> str
         if benefit_id in catalog:
             summary += f" for {catalog[benefit_id].title}"
         return summary
+    if name == "search_community_tips" and isinstance(result, list):
+        if not result:
+            return "no matching community tips"
+        titles = ", ".join(dict.fromkeys(hit["benefit"] for hit in result))
+        return f"found {len(result)} community tip{'' if len(result) == 1 else 's'}: {titles}"
     if name == "propose_mark" and isinstance(result, dict) and "proposal" in result:
         p = result["proposal"]
         return f"offered to mark {p['title']} ({p['period_label']}) used; waiting for your tap"
@@ -149,6 +164,15 @@ class _Session:
         if name == "get_community_tips":
             return [{"tip": t["tip"], "source_url": t["source_url"], "source_date": t["source_date"]}
                     for t in tips_for(self.db, args.get("benefit_id", ""))]
+        if name == "search_community_tips":
+            if self.embedder is None:
+                from ..embeddings import OpenAIEmbeddingProvider
+                self.embedder = OpenAIEmbeddingProvider(self.client)
+            hits = search_community_ideas(self.db, args["query"], embedder=self.embedder, limit=3)
+            # Never transaction descriptions or account data; only tip/idea text, dates and public URLs.
+            return [{"benefit_id": h["benefit_id"], "benefit": h["benefit"], "card": h["card"],
+                     "tip": h.get("tip") or h.get("idea", ""), "source_url": h["source_url"],
+                     "source_date": h["source_date"], "label": h["label"]} for h in hits]
         if name == "propose_mark":
             state = benefit_state(self.db, args["benefit_id"], self.as_of, self.marks) if args.get("benefit_id") in catalog_by_id() else None
             if state is None or state["tracking"] != "manual":
