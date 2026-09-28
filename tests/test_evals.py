@@ -180,8 +180,9 @@ class PerfSuiteTest(unittest.TestCase):
             self.assertEqual(report["totals"]["requests"], 7)
             self.assertIsNotNone(report["benefit_chat"]["p50_latency_ms"])
             self.assertIsNotNone(report["benefit_chat"]["p95_latency_ms"])
-            # No usage/cost fields on this repo's reply dicts yet: missing_usage should be counted, not crash.
-            self.assertEqual(report["benefit_chat"]["missing_usage"], 3)
+            # Every chat reply carries usage now, so nothing is counted as missing.
+            self.assertEqual(report["benefit_chat"]["missing_usage"], 0)
+            self.assertEqual(report["benefit_chat"]["mean_model_calls"], 1)
         finally:
             db.close()
 
