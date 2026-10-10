@@ -2,6 +2,8 @@
 
 A credit-card benefit tracker that matches a commercial tracker (MaxRewards) on my own data: every statement credit, every period, **used / partial / missed / at risk** — plus a chat and a wallet-wide "Ask" that explain what to do next.
 
+**▶ [Watch the product walkthrough](https://drive.google.com/file/d/1Sh--hFfNOpCzN0O4vAulY_rSGaHrTw3l/view?usp=sharing)** — the tracker, benefit chat, and wallet-wide Ask in action.
+
 > **Design philosophy.** Every number — status, amount, deadline — is computed by code from statement lines; AI only explains it, writes a weekly plan, and proposes actions a tap confirms. It never decides a status. The project is deliberately small (a couple of cards, a hand-checked catalog of credits, my own data) — built to prove depth on a few hard problems, not issuer-count breadth.
 
 ## Architecture
@@ -38,10 +40,6 @@ flowchart TB
 - **Search (`runtime/retrieval/search.py`)**: embeds official benefit terms and community tips (never transactions) and, when a question names a card, filters to that card first.
 - **Agent loop (`runtime/chat.py`)**: a small tool-using loop (5 tools, including two RAG searches over official terms and community tips; at most 4 calls per turn) on `gpt-4o-mini`. A code-level grounding check flags any dollar amount in an answer that isn't in the context or a tool result. The model sees a credit's terms, tips, amounts and dates — never transaction descriptions or account details.
 - **Evals (`evals/run.py`)**: tracker (status/amount correctness), retrieval (recall@3), and chat (code checks + an LLM judge for usefulness only).
-
-## Demo video
-
-[Watch the product walkthrough](https://drive.google.com/file/d/1Sh--hFfNOpCzN0O4vAulY_rSGaHrTw3l/view?usp=sharing) — the tracker, benefit chat, and wallet-wide Ask in action.
 
 ## Screenshots
 
