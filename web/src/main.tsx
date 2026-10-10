@@ -296,7 +296,7 @@ function EvalsAdmin() {
       <p>The suites the capstone write-up cites. Reruns here always use synthetic data, never your real statements.</p>
     </div>
     <div className="admin-grid">
-      {Object.entries(snapshot).map(([name, suite]) => <div className="admin-card" key={name}>
+      {Object.entries(snapshot).filter(([name]) => name !== 'tracker').map(([name, suite]) => <div className="admin-card" key={name}>
         <div className="admin-card-head"><b>{suite.title}</b><span className={`status-pill status-${suite.status}`}>{suite.status}</span></div>
         <p className="admin-desc">{suite.description}</p>
         <div className="admin-meta">
