@@ -39,6 +39,10 @@ flowchart TB
 - **Agent loop (`runtime/chat.py`)**: a small tool-using loop (5 tools, including two RAG searches over official terms and community tips; at most 4 calls per turn) on `gpt-4o-mini`. A code-level grounding check flags any dollar amount in an answer that isn't in the context or a tool result. The model sees a credit's terms, tips, amounts and dates — never transaction descriptions or account details.
 - **Evals (`evals/run.py`)**: tracker (status/amount correctness), retrieval (recall@3), and chat (code checks + an LLM judge for usefulness only).
 
+## Demo video
+
+[Watch the product walkthrough](https://drive.google.com/file/d/1Sh--hFfNOpCzN0O4vAulY_rSGaHrTw3l/view?usp=sharing) — the tracker, benefit chat, and wallet-wide Ask in action.
+
 ## Screenshots
 
 ![Main page: 3 cards, at-risk credits, the Ask PerkWatch agent, and the weekly AI plan](screenshots/tracker.png)
